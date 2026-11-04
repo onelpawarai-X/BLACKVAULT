@@ -44,6 +44,10 @@ jobs:
           workspaces: src-tauri
       - name: Test the platform-independent core
         run: ./scripts/pure-core-test.sh
+      - name: Type-check the Windows-only modules
+        run: |
+          rustup target add x86_64-pc-windows-msvc
+          ./scripts/win-check.sh
       - name: Check the whole crate
         run: cargo check --manifest-path src-tauri/Cargo.toml
 

@@ -45,11 +45,10 @@ mod imp {
     use windows::Win32::Foundation::{LocalFree, HLOCAL};
     use windows::Win32::Security::Authorization::{
         ConvertSecurityDescriptorToStringSecurityDescriptorW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
-        GetNamedSecurityInfoW, SetNamedSecurityInfoW, SE_FILE_OBJECT,
-        DACL_SECURITY_INFORMATION, SDDL_REVISION_1,
+        GetNamedSecurityInfoW, SetNamedSecurityInfoW, SE_FILE_OBJECT, SDDL_REVISION_1,
     };
     use windows::Win32::Security::{
-        ACL, DACL_SECURITY_INFORMATION as _, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES,
+        ACL, DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
     };
     use windows::Win32::Storage::FileSystem::{
         EncryptFileW, DecryptFileW, GetFileAttributesW, INVALID_FILE_ATTRIBUTES,
@@ -88,7 +87,7 @@ mod imp {
             ConvertSidToStringSidW(tu.User.Sid, &mut sid_str)
                 .map_err(|e| BvError::msg(format!("ConvertSidToStringSid: {e}")))?;
             let s = sid_str.to_string().map_err(|_| BvError::Crypto)?;
-            let _ = LocalFree(Some(HLOCAL(sid_str.0 as *mut _)));
+            let _ = LocalFree(HLOCAL(sid_str.0 as *mut _));
             Ok(s)
         }
     }
@@ -123,12 +122,12 @@ mod imp {
                 &mut sddl,
                 None,
             );
-            let _ = LocalFree(Some(HLOCAL(sd.0)));
+            let _ = LocalFree(HLOCAL(sd.0));
             if ok.is_err() {
                 return Ok(String::new());
             }
             let out = sddl.to_string().unwrap_or_default();
-            let _ = LocalFree(Some(HLOCAL(sddl.0 as *mut _)));
+            let _ = LocalFree(HLOCAL(sddl.0 as *mut _));
             Ok(out)
         }
     }
@@ -191,12 +190,12 @@ mod imp {
                 windows::core::PWSTR(wpath.as_ptr() as *mut u16),
                 SE_FILE_OBJECT,
                 DACL_SECURITY_INFORMATION,
-                None,
-                None,
+                PSID::default(),
+                PSID::default(),
                 Some(dacl_ptr),
                 None,
             );
-            let _ = LocalFree(Some(HLOCAL(sd.0)));
+            let _ = LocalFree(HLOCAL(sd.0));
             if rc.0 != 0 {
                 return Err(BvError::msg(format!("SetNamedSecurityInfo failed ({})", rc.0)));
             }
@@ -206,12 +205,12 @@ mod imp {
 
     fn encrypt(path: &Path) -> BvResult<bool> {
         let wpath = wide(&path.to_string_lossy());
-        unsafe { Ok(EncryptFileW(PCWSTR(wpath.as_ptr())).as_bool()) }
+        unsafe { Ok(EncryptFileW(PCWSTR(wpath.as_ptr())).is_ok()) }
     }
 
     fn decrypt(path: &Path) -> BvResult<bool> {
         let wpath = wide(&path.to_string_lossy());
-        unsafe { Ok(DecryptFileW(PCWSTR(wpath.as_ptr())).as_bool()) }
+        unsafe { Ok(DecryptFileW(PCWSTR(wpath.as_ptr()), 0).is_ok()) }
     }
 
     /// Recursively encrypt a directory tree with EFS.

@@ -101,7 +101,7 @@ fn mic_status(state: &Arc<AppState>) -> MicStatus {
 }
 
 fn default_input_name() -> Option<String> {
-    use cpal::traits::HostTrait;
+    use cpal::traits::{DeviceTrait, HostTrait};
     let host = cpal::default_host();
     host.default_input_device().and_then(|d| d.name().ok())
 }

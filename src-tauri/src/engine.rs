@@ -332,7 +332,7 @@ fn launch_by_name(state: &Arc<AppState>, name: &str) -> crate::error::BvResult<(
     // Keep a protected app authorised while it runs, if it is protected.
     if let Ok(rules) = state.db.list_protected_apps() {
         if let Some(rule) = rules.iter().find(|r| {
-            app.command.to_ascii_lowercase().ends_with(&rule.process_name.to_ascii_lowercase())
+            app.command.to_ascii_lowercase().ends_with(&r.process_name.to_ascii_lowercase())
         }) {
             state
                 .authorizations

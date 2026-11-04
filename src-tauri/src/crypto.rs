@@ -83,40 +83,41 @@ pub fn keyed_digest(key: &[u8], data: &[u8]) -> Vec<u8> {
 #[cfg(windows)]
 mod platform {
     use super::*;
-    use windows::Win32::Foundation::DATA_BLOB;
+    use windows::Win32::Foundation::LocalFree;
     use windows::Win32::Security::Cryptography::{
-        CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN,
+        CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
     };
 
-    fn blob(data: &[u8]) -> DATA_BLOB {
-        DATA_BLOB {
+    fn blob(data: &[u8]) -> CRYPT_INTEGER_BLOB {
+        CRYPT_INTEGER_BLOB {
             cbData: data.len() as u32,
             pbData: data.as_ptr() as *mut u8,
         }
+    }
+
+    /// Copy a DPAPI output blob into a `Vec` and release the system buffer.
+    unsafe fn take(output: CRYPT_INTEGER_BLOB) -> Vec<u8> {
+        let out = std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
+        let _ = LocalFree(windows::Win32::Foundation::HLOCAL(output.pbData as *mut _));
+        out
     }
 
     /// Seal bytes with DPAPI (current user scope, no UI prompt).
     pub fn protect(plain: &[u8]) -> BvResult<Vec<u8>> {
         unsafe {
             let input = blob(plain);
-            let mut output = DATA_BLOB::default();
-            let ok = CryptProtectData(
+            let mut output = CRYPT_INTEGER_BLOB::default();
+            CryptProtectData(
                 &input,
-                None,
+                windows::core::PCWSTR::null(),
                 None,
                 None,
                 None,
                 CRYPTPROTECT_UI_FORBIDDEN,
                 &mut output,
-            );
-            if ok.is_err() {
-                return Err(BvError::Crypto);
-            }
-            let out = std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
-            windows::Win32::System::Memory::LocalFree(
-                windows::Win32::Foundation::HLOCAL(output.pbData as *mut core::ffi::c_void),
-            );
-            Ok(out)
+            )
+            .map_err(|_| BvError::Crypto)?;
+            Ok(take(output))
         }
     }
 
@@ -124,8 +125,8 @@ mod platform {
     pub fn unprotect(sealed: &[u8]) -> BvResult<Vec<u8>> {
         unsafe {
             let input = blob(sealed);
-            let mut output = DATA_BLOB::default();
-            let ok = CryptUnprotectData(
+            let mut output = CRYPT_INTEGER_BLOB::default();
+            CryptUnprotectData(
                 &input,
                 None,
                 None,
@@ -133,15 +134,9 @@ mod platform {
                 None,
                 CRYPTPROTECT_UI_FORBIDDEN,
                 &mut output,
-            );
-            if ok.is_err() {
-                return Err(BvError::Crypto);
-            }
-            let out = std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
-            windows::Win32::System::Memory::LocalFree(
-                windows::Win32::Foundation::HLOCAL(output.pbData as *mut core::ffi::c_void),
-            );
-            Ok(out)
+            )
+            .map_err(|_| BvError::Crypto)?;
+            Ok(take(output))
         }
     }
 

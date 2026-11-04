@@ -227,11 +227,11 @@ mod imp {
         ));
 
         unsafe {
-            let screen = GetDC(None);
-            let mem = CreateCompatibleDC(Some(screen));
+            let screen = GetDC(windows::Win32::Foundation::HWND::default());
+            let mem = CreateCompatibleDC(screen);
             let bmp = CreateCompatibleBitmap(screen, w, h);
-            let old = windows::Win32::Graphics::Gdi::SelectObject(mem, bmp.into());
-            BitBlt(mem, 0, 0, w, h, Some(screen), 0, 0, SRCCOPY)
+            let old = windows::Win32::Graphics::Gdi::SelectObject(mem, bmp);
+            BitBlt(mem, 0, 0, w, h, screen, 0, 0, SRCCOPY)
                 .map_err(|e| BvError::msg(format!("BitBlt failed: {e}")))?;
 
             let mut info = BITMAPINFO {
@@ -258,9 +258,9 @@ mod imp {
                 DIB_RGB_COLORS,
             );
             windows::Win32::Graphics::Gdi::SelectObject(mem, old);
-            let _ = DeleteObject(bmp.into());
+            let _ = DeleteObject(bmp);
             let _ = DeleteDC(mem);
-            ReleaseDC(None, screen);
+            ReleaseDC(windows::Win32::Foundation::HWND::default(), screen);
             if lines == 0 {
                 return Err(BvError::msg("GetDIBits failed"));
             }

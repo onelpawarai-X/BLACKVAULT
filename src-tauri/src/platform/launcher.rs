@@ -132,7 +132,7 @@ pub fn resolve_shortcut(lnk: &Path) -> Option<PathBuf> {
             let wide = HSTRING::from(lnk.to_string_lossy().to_string());
             persist.Load(PCWSTR(wide.as_ptr()), windows::Win32::System::Com::STGM_READ).ok()?;
             let mut buf = [0u16; 1024];
-            link.GetPath(&mut buf, None, 0).ok()?;
+            link.GetPath(&mut buf, std::ptr::null_mut(), 0).ok()?;
             let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
             let s = String::from_utf16_lossy(&buf[..len]);
             if s.is_empty() {
@@ -174,7 +174,7 @@ fn scan_uninstall_registry(found: &mut Vec<DeviceScanResult>, seen: &mut std::co
             return None;
         }
         let mut buf = vec![0u8; len as usize];
-        RegQueryValueExW(
+        if RegQueryValueExW(
             key,
             PCWSTR(wname.as_ptr()),
             None,
@@ -182,7 +182,10 @@ fn scan_uninstall_registry(found: &mut Vec<DeviceScanResult>, seen: &mut std::co
             Some(buf.as_mut_ptr()),
             Some(&mut len),
         )
-        .ok()?;
+        .is_err()
+        {
+            return None;
+        }
         let u16s: Vec<u16> = buf
             .chunks_exact(2)
             .map(|c| u16::from_le_bytes([c[0], c[1]]))
@@ -194,21 +197,21 @@ fn scan_uninstall_registry(found: &mut Vec<DeviceScanResult>, seen: &mut std::co
     unsafe fn scan_root(root: HKEY, sub: &str, found: &mut Vec<DeviceScanResult>, seen: &mut std::collections::HashSet<String>) {
         let wsub = wide(sub);
         let mut key = HKEY::default();
-        if RegOpenKeyExW(root, PCWSTR(wsub.as_ptr()), Some(0), KEY_READ, &mut key).is_err() {
+        if RegOpenKeyExW(root, PCWSTR(wsub.as_ptr()), 0, KEY_READ, &mut key).is_err() {
             return;
         }
         let mut i = 0u32;
         loop {
             let mut name = [0u16; 256];
             let mut len = name.len() as u32;
-            if RegEnumKeyExW(key, i, Some(windows::core::PWSTR(name.as_mut_ptr())), &mut len, None, None, None, None).is_err() {
+            if RegEnumKeyExW(key, i, windows::core::PWSTR(name.as_mut_ptr()), &mut len, None, windows::core::PWSTR::null(), None, None).is_err() {
                 break;
             }
             i += 1;
             let sub_name = String::from_utf16_lossy(&name[..len as usize]);
             let mut subkey = HKEY::default();
             let wsubname = wide(&sub_name);
-            if RegOpenKeyExW(key, PCWSTR(wsubname.as_ptr()), Some(0), KEY_READ, &mut subkey).is_ok() {
+            if RegOpenKeyExW(key, PCWSTR(wsubname.as_ptr()), 0, KEY_READ, &mut subkey).is_ok() {
                 if let Some(loc) = read_value(subkey, "DisplayIcon").or_else(|| read_value(subkey, "InstallLocation")) {
                     let clean = loc.split(',').next().unwrap_or("").trim().trim_matches('"').to_string();
                     let p = PathBuf::from(&clean);
@@ -339,7 +342,7 @@ pub fn close_process(process_name: &str) -> BvResult<()> {
         let mut pid = 0u32;
         GetWindowThreadProcessId(hwnd, Some(&mut pid));
         if pids.contains(&pid) && IsWindowVisible(hwnd).as_bool() {
-            let _ = PostMessageW(Some(hwnd), WM_CLOSE, windows::Win32::Foundation::WPARAM(0), LPARAM(0));
+            let _ = PostMessageW(hwnd, WM_CLOSE, windows::Win32::Foundation::WPARAM(0), LPARAM(0));
         }
         true.into()
     }

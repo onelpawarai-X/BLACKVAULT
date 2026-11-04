@@ -35,8 +35,10 @@ pub fn set_autostart(enabled: bool) -> BvResult<()> {
     unsafe {
         let mut key = HKEY::default();
         let wkey = wide(RUN_KEY);
-        RegOpenKeyExW(HKEY_CURRENT_USER, PCWSTR(wkey.as_ptr()), Some(0), KEY_SET_VALUE, &mut key)
-            .map_err(|e| BvError::msg(format!("could not open Run key: {e}")))?;
+        let rc = RegOpenKeyExW(HKEY_CURRENT_USER, PCWSTR(wkey.as_ptr()), 0, KEY_SET_VALUE, &mut key);
+        if rc.is_err() {
+            return Err(BvError::msg(format!("could not open Run key ({})", rc.0)));
+        }
         let wname = wide(RUN_VALUE);
         let result = if enabled {
             let exe = std::env::current_exe()
@@ -44,8 +46,12 @@ pub fn set_autostart(enabled: bool) -> BvResult<()> {
             let value = format!("\"{}\" --tray", exe.to_string_lossy());
             let wval = wide(&value);
             let bytes = std::slice::from_raw_parts(wval.as_ptr() as *const u8, wval.len() * 2);
-            RegSetValueExW(key, PCWSTR(wname.as_ptr()), Some(0), REG_SZ, Some(bytes))
-                .map_err(|e| BvError::msg(format!("could not write Run value: {e}")))
+            let rc = RegSetValueExW(key, PCWSTR(wname.as_ptr()), 0, REG_SZ, Some(bytes));
+            if rc.is_err() {
+                Err(BvError::msg(format!("could not write Run value ({})", rc.0)))
+            } else {
+                Ok(())
+            }
         } else {
             let _ = RegDeleteValueW(key, PCWSTR(wname.as_ptr()));
             Ok(())
@@ -70,7 +76,7 @@ pub fn autostart_enabled() -> bool {
     unsafe {
         let mut key = HKEY::default();
         let wkey = wide(RUN_KEY);
-        if RegOpenKeyExW(HKEY_CURRENT_USER, PCWSTR(wkey.as_ptr()), Some(0), KEY_READ, &mut key).is_err() {
+        if RegOpenKeyExW(HKEY_CURRENT_USER, PCWSTR(wkey.as_ptr()), 0, KEY_READ, &mut key).is_err() {
             return false;
         }
         let wname = wide(RUN_VALUE);
