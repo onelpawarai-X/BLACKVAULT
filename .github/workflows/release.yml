@@ -71,16 +71,12 @@ jobs:
       - name: Checksums
         shell: pwsh
         run: |
-          $files = @(
-            "src-tauri/target/release/blackvault.exe",
-            "src-tauri/target/release/bundle/nsis/BLACKVAULT_1.0.0_x64-setup.exe",
-            "src-tauri/target/release/bundle/msi/BLACKVAULT_1.0.0_x64_en-US.msi"
-          )
+          $files = Get-ChildItem -Recurse -File -Include *.exe,*.msi `
+            src-tauri/target/release/bundle, src-tauri/target/release/blackvault.exe |
+            Where-Object { $_.FullName -notmatch '\\target\\release\\build\\' }
           foreach ($f in $files) {
-            if (Test-Path $f) {
-              $h = (Get-FileHash -Algorithm SHA256 $f).Hash.ToLower()
-              "$h  $(Split-Path $f -Leaf)" | Out-File -Append -Encoding ascii SHA256SUMS.txt
-            }
+            $h = (Get-FileHash -Algorithm SHA256 $f.FullName).Hash.ToLower()
+            "$h  $($f.Name)" | Out-File -Append -Encoding ascii SHA256SUMS.txt
           }
           Get-Content SHA256SUMS.txt
 
@@ -106,8 +102,8 @@ jobs:
             Native Windows desktop security system. Tauri 2 + Rust.
 
             **Assets**
-            - `BLACKVAULT_1.0.0_x64_en-US.msi` — Windows installer (MSI)
-            - `BLACKVAULT_1.0.0_x64-setup.exe` — Windows installer (NSIS)
+            - `.msi` — Windows installer (MSI)
+            - `-setup.exe` — Windows installer (NSIS)
             - `blackvault.exe` — portable build, runs in place
             - `SHA256SUMS.txt` — checksums
 
