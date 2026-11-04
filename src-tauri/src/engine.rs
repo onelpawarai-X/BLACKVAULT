@@ -23,6 +23,11 @@ use crate::voice::matcher::Template;
 use crate::voice::router::RouteKind;
 use crate::voice::{Utterance, VoiceEngine};
 
+/// How long a protected application may keep running while the authentication
+/// prompt is up. Long enough to type a PIN, short enough that a locked app does
+/// not stay open indefinitely.
+const BLOCK_GRACE: Duration = Duration::from_secs(20);
+
 /// Start every background concern. Idempotent per process.
 pub fn spawn(state: Arc<AppState>) {
     // 1. Wire the voice engine's sinks.
@@ -60,6 +65,19 @@ pub fn spawn(state: Arc<AppState>) {
         state.emit(CoreEvent::Voice(st));
     }
     restart_speech(&state);
+
+    // 3b. Word recognition through the ZYRAXON STT endpoint. This runs
+    // alongside the offline recogniser rather than instead of it: whichever
+    // hears the command first wins, and the dedup guard above stops a double
+    // fire. It is the path that works when SAPI is missing or has no grammar
+    // for the user's phrases.
+    apply_stt_settings(&state);
+    if state.settings().stt_enabled {
+        let s = Arc::clone(&state);
+        state
+            .stt
+            .start(Arc::new(move |text: String| on_text(&s, &text)));
+    }
 
     // 4. Supervisor thread: app guard + watchdog + timers.
     let sup = Arc::clone(&state);
@@ -181,6 +199,72 @@ pub fn restart_speech(state: &Arc<AppState>) {
     state.speech.start(phrases, dictation);
 }
 
+/// Re-seal any protected item whose deny ACE was removed or edited away.
+///
+/// A protection that quietly stops being enforced is worse than no protection,
+/// so the guard checks the DACL itself rather than trusting that the seal from
+/// when the item was added is still in place.
+pub fn enforce_file_protection(state: &Arc<AppState>) {
+    let Ok(items) = state.db.list_protected_items() else {
+        return;
+    };
+    for item in items {
+        if !item.protected {
+            continue;
+        }
+        let p = std::path::Path::new(&item.path);
+        if !p.exists() {
+            continue;
+        }
+        if crate::platform::fileprot::is_sealed(p) {
+            continue;
+        }
+        match crate::platform::fileprot::seal_item(p) {
+            Ok(applied) if applied.acl || applied.encrypted => {
+                log::warn!("re-sealed {} after the protection was removed", item.path);
+                state.log_event(
+                    "file_protected",
+                    "warn",
+                    &format!("Re-sealed {}", item.display_name),
+                    Some("the deny permission had been removed"),
+                );
+            }
+            Ok(_) => {
+                state.log_event(
+                    "file_protected",
+                    "warn",
+                    &format!("Could not re-seal {}", item.display_name),
+                    Some("run BLACKVAULT as an administrator"),
+                );
+            }
+            Err(e) => log::warn!("re-seal failed for {}: {e}", item.path),
+        }
+    }
+}
+
+/// Push the STT-related settings into the worker.
+pub fn apply_stt_settings(state: &Arc<AppState>) {
+    let settings = state.settings();
+    state.stt.set_config(crate::platform::stt::SttConfig {
+        endpoint: settings.stt_endpoint.clone(),
+        language: settings.stt_language.clone(),
+        live: settings.stt_live,
+        min_confidence: settings.stt_min_confidence,
+    });
+}
+
+/// Start or stop the STT worker to match the setting.
+pub fn sync_stt(state: &Arc<AppState>) {
+    apply_stt_settings(state);
+    let settings = state.settings();
+    if settings.stt_enabled && !state.stt.is_running() {
+        let s = Arc::clone(state);
+        state.stt.start(Arc::new(move |text: String| on_text(&s, &text)));
+    } else if !settings.stt_enabled && state.stt.is_running() {
+        state.stt.stop();
+    }
+}
+
 /// A phrase was recognised as *words* by the offline engine.
 ///
 /// This is the path that makes the default commands work: the words are matched
@@ -255,7 +339,27 @@ fn on_text(state: &Arc<AppState>, text: &str) {
         .map(|c| c.phrase.clone())
         .collect();
     let Some((phrase, _score)) = crate::voice::matcher::match_text(&heard, &phrases) else {
-        state.toast("Not recognised", &format!("\u{201c}{heard}\u{201d} matches no command."), "warn");
+        state.toast(
+            "Not recognised",
+            &format!("\u{201c}{heard}\u{201d} matches no command."),
+            "warn",
+        );
+        // A phrase that is not a command may still be the secret passphrase.
+        // Verifying it is the same PBKDF2 comparison the lock screen runs, so
+        // speech is only the input method here — never the proof.
+        if !heard.starts_with("open ")
+            && state
+                .db
+                .get_secret(crate::auth::SECRET_PASSPHRASE)
+                .ok()
+                .flatten()
+                .is_some()
+        {
+            let r = crate::commands::spoken_passphrase(state, &heard);
+            if r.ok {
+                state.toast("Voice phrase accepted", &r.message, "info");
+            }
+        }
         return;
     };
 
@@ -284,6 +388,15 @@ fn on_utterance(state: &Arc<AppState>, utterance: Utterance) {
         return;
     }
     let settings = state.settings();
+
+    // Hand the audio to the word recogniser. This is what makes commands work;
+    // the DTW match below is the voiceprint check, which is a different job.
+    // The worker drops the utterance when it is still busy, so capture is never
+    // stalled by a slow response.
+    if settings.stt_enabled && !utterance.pcm16.is_empty() {
+        state.stt.submit(utterance.pcm16.clone());
+    }
+
     let locked = state.mode() == SecurityMode::Locked;
 
     // The recogniser hands back templates; score the utterance against them.
@@ -369,6 +482,18 @@ fn on_utterance(state: &Arc<AppState>, utterance: Utterance) {
 
 /// Look up a command by phrase and run its action.
 pub fn execute_command(state: &Arc<AppState>, phrase: &str) {
+    // Both recognisers can hear the same words, and the live STT stream reports
+    // a partial and then the same segment. Fire once per utterance.
+    {
+        let mut last = state.last_command.lock();
+        if let Some((prev, at)) = last.as_ref() {
+            if prev == phrase && at.elapsed() < Duration::from_millis(1500) {
+                return;
+            }
+        }
+        *last = Some((phrase.to_string(), Instant::now()));
+    }
+
     let commands = match state.db.list_commands() {
         Ok(c) => c,
         Err(_) => return,
@@ -531,6 +656,7 @@ fn open_url(_url: &str) -> crate::error::BvResult<()> {
 fn supervisor(state: Arc<AppState>) {
     let mut router_guard = Instant::now();
     let mut last_guard = Instant::now();
+    let mut last_file_guard = Instant::now();
     let mut last_voice_check = Instant::now();
     let mut unlocked_at = Instant::now();
     let mut last_mode = state.mode();
@@ -588,10 +714,35 @@ fn supervisor(state: Arc<AppState>) {
             }
         }
 
+        // --- STT watchdog ------------------------------------------------
+        // The word recogniser is the component that understands commands, so it
+        // gets the same treatment as the listener: if it dies, bring it back.
+        if last_voice_check.elapsed() > Duration::from_secs(5) {
+            if settings.stt_enabled && !state.stt.is_running() {
+                log::warn!("speech-to-text worker stopped unexpectedly; restarting");
+                sync_stt(&state);
+                state.log_event(
+                    "engine_recovery",
+                    "warn",
+                    "Speech-to-text worker recovered",
+                    state.stt.last_error().as_deref(),
+                );
+            }
+        }
+
         // --- app guard ---------------------------------------------------
-        if last_guard.elapsed() > Duration::from_millis(1200) {
+        if last_guard.elapsed() > Duration::from_millis(400) {
             last_guard = Instant::now();
             guard_apps(&state);
+        }
+
+        // --- file guard --------------------------------------------------
+        // Slower than the process guard: walking the protected list touches the
+        // filesystem, and a tampered DACL is not a race we have to win in
+        // milliseconds.
+        if last_file_guard.elapsed() > Duration::from_secs(5) {
+            last_file_guard = Instant::now();
+            enforce_file_protection(&state);
         }
 
         // --- idle / auto relock ------------------------------------------
@@ -639,6 +790,39 @@ fn guard_apps(state: &Arc<AppState>) {
         let until = state.authorizations.lock().until(&name);
         let decision = applock::decide(rule.require_auth, rule.locked, true, until, now);
         if decision == GuardDecision::Block {
+            // Give the user a chance to authenticate before anything is killed.
+            // Killing a protected app the instant it appears is what made the
+            // feature feel broken: the app flashed up, vanished, and nothing
+            // ever asked for a password.
+            let first_seen = *state
+                .pending_blocks
+                .lock()
+                .entry(name.clone())
+                .or_insert(now);
+            let waited = now.duration_since(first_seen);
+            if waited < BLOCK_GRACE {
+                // Ask once per grace window, not on every pass of the loop.
+                if waited < Duration::from_millis(700) {
+                    state.emit(CoreEvent::AppChallenge {
+                        rule_id: rule.id,
+                        process_name: rule.process_name.clone(),
+                        display_name: rule.display_name.clone(),
+                        grace_secs: (BLOCK_GRACE - waited).as_secs(),
+                    });
+                    state.toast(
+                        "Protected application",
+                        &format!("Authenticate to keep {} running.", rule.display_name),
+                        "warn",
+                    );
+                    state.log_event(
+                        "app_challenge",
+                        "warn",
+                        &format!("{} needs authentication", rule.display_name),
+                        Some(&format!("pid {}", matching[0].pid)),
+                    );
+                }
+                continue;
+            }
             for p in &matching {
                 log::info!("blocking protected process {} ({})", p.name, p.pid);
                 if applock::terminate_pid(p.pid) {
@@ -648,13 +832,12 @@ fn guard_apps(state: &Arc<AppState>) {
                         &format!("Blocked {}", rule.display_name),
                         Some(&format!("pid {} terminated", p.pid)),
                     );
-                    state.toast(
-                        "Application blocked",
-                        &format!("{} is protected. Authenticate to run it.", rule.display_name),
-                        "warn",
-                    );
                 }
             }
+            state.pending_blocks.lock().remove(&name);
+        } else {
+            // Authorised: forget the pending prompt.
+            state.pending_blocks.lock().remove(&name);
         }
     }
 
@@ -666,6 +849,7 @@ fn guard_apps(state: &Arc<AppState>) {
             state.authorizations.lock().revoke(&name);
         }
     }
+    state.pending_blocks.lock().retain(|_, at| at.elapsed() < Duration::from_secs(120));
 }
 
 // ------------------------------------------------------------- full-screen mode

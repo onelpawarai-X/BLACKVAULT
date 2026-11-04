@@ -118,6 +118,40 @@ pub struct EngineStatus {
     /// Whether an offline speech recogniser is installed and usable. When false
     /// the UI must say so rather than implying voice commands will work.
     pub speech_available: bool,
+    /// The word recogniser that goes through the ZYRAXON STT endpoint.
+    pub stt: SttStatus,
+}
+
+/// Health of the STT bridge, shown on the dashboard.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SttStatus {
+    pub enabled: bool,
+    pub running: bool,
+    pub busy: bool,
+    pub endpoint: String,
+    pub language: String,
+    pub live: bool,
+    /// Utterances handed to the recogniser since it started.
+    pub recognised: u64,
+    pub last_text: Option<String>,
+    pub last_error: Option<String>,
+}
+
+impl Default for SttStatus {
+    fn default() -> Self {
+        SttStatus {
+            enabled: false,
+            running: false,
+            busy: false,
+            endpoint: crate::platform::stt::DEFAULT_ENDPOINT.into(),
+            language: "en".into(),
+            live: false,
+            recognised: 0,
+            last_text: None,
+            last_error: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

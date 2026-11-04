@@ -321,3 +321,103 @@
   stroke-linecap: round;
   filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.8));
 }
+
+/* ---- Lock ceremony: the vault door closing --------------------------- */
+.bv-vault-core { animation: vaultSeat 940ms var(--ease) both; }
+@keyframes vaultSeat {
+  0% { opacity: 0; transform: scale(1.35); filter: blur(14px); }
+  45% { opacity: 1; transform: scale(1); filter: none; }
+  70% { transform: scale(0.985); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.bv-vault-glyph { position: relative; display: grid; place-items: center; }
+.bv-vault-glyph svg {
+  width: 132px;
+  height: 132px;
+  color: rgba(255, 255, 255, 0.92);
+  filter: drop-shadow(0 0 26px rgba(255, 255, 255, 0.45));
+  animation: vaultSeal 900ms var(--ease) 120ms both;
+}
+@keyframes vaultSeal {
+  0% { transform: rotate(-14deg) scale(1.18); opacity: 0.2; }
+  60% { transform: rotate(2deg) scale(1); opacity: 1; }
+  100% { transform: rotate(0) scale(1); opacity: 1; }
+}
+.bv-vault-bolts i {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 22px;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.9), transparent);
+  transform-origin: 0 50%;
+  opacity: 0;
+  animation: boltDrive 620ms var(--ease) 420ms both;
+}
+.bv-vault-bolts i:nth-child(1) { transform: rotate(0deg) translateX(58px); }
+.bv-vault-bolts i:nth-child(2) { transform: rotate(90deg) translateX(58px); }
+.bv-vault-bolts i:nth-child(3) { transform: rotate(180deg) translateX(58px); }
+.bv-vault-bolts i:nth-child(4) { transform: rotate(270deg) translateX(58px); }
+@keyframes boltDrive {
+  0% { opacity: 0; width: 0; }
+  55% { opacity: 1; width: 26px; }
+  100% { opacity: 0; width: 34px; }
+}
+.bv-sealing-word { animation: sealWord 900ms var(--ease) 200ms both; }
+@keyframes sealWord {
+  0% { opacity: 0; letter-spacing: 1.2em; }
+  100% { opacity: 1; letter-spacing: 0.5em; }
+}
+
+/* ---- Unlock ceremony: the vault door opening ------------------------- */
+.bv-unlock-shutter { position: absolute; inset: 0; overflow: hidden; }
+.bv-shutter-half {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 51%;
+  background: #000;
+  animation: shutterOpen 1500ms cubic-bezier(0.16, 1, 0.3, 1) 260ms forwards;
+}
+.bv-shutter-l { left: 0; }
+.bv-shutter-r { right: 0; }
+@keyframes shutterOpen {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(var(--shutter-x, -101%)); }
+}
+.bv-shutter-l { --shutter-x: -101%; }
+.bv-shutter-r { --shutter-x: 101%; }
+.bv-shutter-seam {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  background: #fff;
+  box-shadow: 0 0 40px 12px rgba(255, 255, 255, 0.85);
+  animation: seamFlare 1500ms var(--ease) 260ms forwards;
+}
+@keyframes seamFlare {
+  0% { opacity: 0; transform: scaleY(0.02); }
+  22% { opacity: 1; transform: scaleY(1); }
+  60% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.bv-unlock-burst i {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 46px;
+  margin: -23px 0 0 -1px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), transparent);
+  transform-origin: 50% 50%;
+  opacity: 0;
+  animation: burstOut 1100ms var(--ease) var(--t, 0ms) both;
+}
+@keyframes burstOut {
+  0% { opacity: 0; transform: rotate(var(--a)) translateY(0) scaleY(0.2); }
+  25% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--a)) translateY(var(--d)) scaleY(1.6); }
+}

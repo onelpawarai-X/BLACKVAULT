@@ -40,6 +40,10 @@ pub struct Utterance {
     pub speaker: Vec<f32>,
     pub duration_ms: u32,
     pub peak_level: f32,
+    /// The same audio as 16-bit PCM at 16 kHz, for recognisers that want the
+    /// signal rather than the features. Held in memory and dropped with the
+    /// utterance: it is never written anywhere.
+    pub pcm16: Vec<i16>,
 }
 
 pub type UtteranceSink = Arc<dyn Fn(Utterance) + Send + Sync>;
@@ -338,6 +342,7 @@ fn emit(shared: &Arc<Shared>, utterance: &mut Vec<f32>, peak: &mut f32) {
     let duration_ms = (samples.len() as u64 * 1000 / dsp::SAMPLE_RATE as u64) as u32;
     let peak_level = *peak;
     *peak = 0.0;
+    let pcm16 = crate::platform::stt::pcm16_from_f32(&samples);
 
     let sink = shared.sink.lock().clone();
     if let Some(sink) = sink {
@@ -346,6 +351,7 @@ fn emit(shared: &Arc<Shared>, utterance: &mut Vec<f32>, peak: &mut f32) {
             speaker,
             duration_ms,
             peak_level,
+            pcm16,
         });
     }
 }

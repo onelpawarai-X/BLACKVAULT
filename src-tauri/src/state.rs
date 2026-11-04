@@ -17,6 +17,7 @@ use crate::db::Db;
 use crate::models::SecurityMode;
 use crate::platform::applock::Authorizations;
 use crate::platform::speech::SpeechEngine;
+use crate::platform::stt::SttWorker;
 use crate::settings::Settings;
 use crate::voice::router::Router;
 use crate::voice::VoiceEngine;
@@ -36,6 +37,16 @@ pub enum CoreEvent {
     Auth(crate::models::AuthResult),
     Event(crate::models::SecurityEvent),
     Challenge { factors: Vec<String> },
+    /// A protected application is running without authorisation. The UI raises
+    /// the authentication prompt; the guard will not kill the process until the
+    /// grace period below has passed.
+    AppChallenge {
+        rule_id: i64,
+        process_name: String,
+        display_name: String,
+        /// Seconds left before the process is terminated.
+        grace_secs: u64,
+    },
     Unlocked { token: String },
     Settings(Box<Settings>),
     Toast { title: String, body: String, severity: String },
@@ -52,9 +63,19 @@ pub struct AppState {
     /// Offline word recognition (Windows SAPI). Separate from `voice`: that one
     /// proves *who* is speaking, this one works out *what* was said.
     pub speech: SpeechEngine,
+    /// Word recognition through the ZYRAXON STT endpoint. This is the path that
+    /// works on every machine, including those with no SAPI recogniser.
+    pub stt: SttWorker,
     /// Routing state (wake-phrase arming) that must persist between utterances.
     pub router: Mutex<Router>,
     pub authorizations: Mutex<Authorizations>,
+    /// The last command that actually ran, with the time it ran. Two
+    /// recognisers (offline SAPI and the STT endpoint) can hear the same words,
+    /// and a command must never fire twice for one utterance.
+    pub last_command: Mutex<Option<(String, Instant)>>,
+    /// When each blocked process was first seen running unauthorised. Drives the
+    /// grace period so a protected app is prompted for, not silently killed.
+    pub pending_blocks: Mutex<std::collections::HashMap<String, Instant>>,
     /// True once a passphrase has been verified in the current unlock attempt,
     /// so the second factor can complete the unlock.
     pub partial_auth: AtomicBool,
@@ -89,8 +110,11 @@ impl AppState {
             mode: RwLock::new(SecurityMode::Unlocked),
             voice: VoiceEngine::new(),
             speech: SpeechEngine::new(),
+            stt: SttWorker::new(),
             router: Mutex::new(Router::new()),
             authorizations: Mutex::new(Authorizations::new()),
+            last_command: Mutex::new(None),
+            pending_blocks: Mutex::new(std::collections::HashMap::new()),
             partial_auth: AtomicBool::new(false),
             unlock_token: Mutex::new(None),
             shutting_down: AtomicBool::new(false),

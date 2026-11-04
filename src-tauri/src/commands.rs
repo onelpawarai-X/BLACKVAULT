@@ -46,12 +46,42 @@ pub fn build_status(state: &Arc<AppState>) -> EngineStatus {
         uptime_secs: state.uptime_secs(),
         last_auth: state.db.last_auth_time().ok().flatten(),
         speech_available: state.speech_available.load(Ordering::Relaxed),
+        stt: stt_status(state),
+    }
+}
+
+fn stt_status(state: &Arc<AppState>) -> crate::models::SttStatus {
+    let settings = state.settings();
+    let cfg = state.stt.config();
+    crate::models::SttStatus {
+        enabled: settings.stt_enabled,
+        running: state.stt.is_running(),
+        busy: state.stt.is_busy(),
+        endpoint: cfg.endpoint,
+        language: cfg.language,
+        live: cfg.live,
+        recognised: state.stt.seen(),
+        last_text: state.stt.last_text(),
+        last_error: state.stt.last_error(),
     }
 }
 
 #[tauri::command]
 pub fn get_settings(state: St<'_>) -> Settings {
     state.settings()
+}
+
+/// Reachability check for the speech-to-text endpoint, driven from Settings so
+/// the user can confirm the language and endpoint before trusting them.
+#[tauri::command]
+pub fn probe_stt(settings: Settings) -> BvResult<crate::platform::stt::Transcript> {
+    let cfg = crate::platform::stt::SttConfig {
+        endpoint: settings.stt_endpoint.clone(),
+        language: settings.stt_language.clone(),
+        live: settings.stt_live,
+        min_confidence: settings.stt_min_confidence,
+    };
+    crate::platform::stt::probe(&cfg)
 }
 
 #[tauri::command]
@@ -67,6 +97,8 @@ pub fn save_settings(state: St<'_>, settings: Settings) -> BvResult<Settings> {
     crate::engine::rebuild_templates(&state);
     // The offline grammar listens for the wake phrase and every command.
     crate::engine::restart_speech(&state);
+    // The STT worker needs the new endpoint / language / mode.
+    crate::engine::sync_stt(&state);
 
     // Keep the engine in step with the always-on preference.
     if sanitized.always_on_voice && !state.voice.is_running() {
@@ -843,9 +875,23 @@ pub fn unprotect_path(state: St<'_>, id: i64) -> BvResult<()> {
     Ok(())
 }
 
-/// Release an item for the current session; it re-seals on the next lock.
+/// Release an item for the current session.
+///
+/// Authentication is mandatory: releasing a protected file is exactly the
+/// moment the protection is meant to be doing something. The same check guards
+/// it as guards unlocking a protected application. The item re-seals on the next
+/// lock, and the guard notices within a few seconds if the permission is put
+/// back by hand.
 #[tauri::command]
 pub fn reveal_path(state: St<'_>, id: i64) -> BvResult<()> {
+    let settings = state.settings();
+    let r = auth::verify_hello(&state.db, &settings)
+        .unwrap_or_else(|_| AuthResult::fail("hello", "Windows Hello unavailable", None));
+    if !r.ok && settings.require_second_factor {
+        return Err(BvError::msg(
+            "Authentication is required before a protected file can be released.",
+        ));
+    }
     let items = state.db.list_protected_items()?;
     let item = items.into_iter().find(|i| i.id == id).ok_or(BvError::NotFound)?;
     let snapshot = state.db.acl_snapshot(id)?;
@@ -855,11 +901,29 @@ pub fn reveal_path(state: St<'_>, id: i64) -> BvResult<()> {
     }
     state.db.set_item_protected(id, false)?;
     state.log_event(
-        "file_protected",
+        "file_revealed",
         "warn",
         &format!("Released {}", item.display_name),
         Some("will re-seal on the next lock"),
     );
+    Ok(())
+}
+
+/// Put a released item back under protection immediately.
+#[tauri::command]
+pub fn reseal_path(state: St<'_>, id: i64) -> BvResult<()> {
+    let items = state.db.list_protected_items()?;
+    let item = items.into_iter().find(|i| i.id == id).ok_or(BvError::NotFound)?;
+    let p = std::path::Path::new(&item.path);
+    if !p.exists() {
+        return Err(BvError::msg("the protected path no longer exists"));
+    }
+    let applied = platform::fileprot::seal_item(p)?;
+    if !applied.acl && !applied.encrypted {
+        return Err(BvError::msg("could not re-seal the item"));
+    }
+    state.db.set_item_protected(id, true)?;
+    state.log_event("file_protected", "info", &format!("Re-sealed {}", item.display_name), None);
     Ok(())
 }
 

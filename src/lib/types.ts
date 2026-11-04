@@ -18,6 +18,20 @@ export interface EngineStatus {
   uptimeSecs: number;
   lastAuth: string | null;
   speechAvailable: boolean;
+  stt: SttStatus;
+}
+
+/** Health of the ZYRAXON speech-to-text bridge. */
+export interface SttStatus {
+  enabled: boolean;
+  running: boolean;
+  busy: boolean;
+  endpoint: string;
+  language: string;
+  live: boolean;
+  recognised: number;
+  lastText: string | null;
+  lastError: string | null;
 }
 
 export interface VoiceStatus {
@@ -180,6 +194,11 @@ export interface Settings {
   lockOnSleep: boolean;
   lockOnScreenSaver: boolean;
   blockTaskSwitchWhenLocked: boolean;
+  sttEnabled: boolean;
+  sttEndpoint: string;
+  sttLanguage: string;
+  sttLive: boolean;
+  sttMinConfidence: number;
 }
 
 export interface VoiceIdentity {

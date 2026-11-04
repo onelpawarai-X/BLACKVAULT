@@ -107,6 +107,7 @@ export const voicePane: Pane = {
         ),
         metricCard("Wake Phrase", st.settings?.wakePhraseEnabled ? `"${st.settings?.wakePhrase}"` : "Disabled", st.settings?.requireWakeForCommands ? "Required before commands" : "Commands run without wake", ICONS.bell),
         metricCard("Last Command", v?.lastCommand ?? "—", v?.lastHeard ? `Heard: ${v.lastHeard}` : "No command yet", ICONS.terminal),
+        sttCard(ctx),
         identityCard(ctx),
       ),
       commandEditor(ctx),
@@ -121,6 +122,54 @@ function metricCard(title: string, value: string, note: string, icon: string): H
     el("div", { class: "bv-card-title" }, svgIcon(icon, 16), title),
     el("div", { class: "bv-metric-sm", style: "font-size:15px" }, value),
     el("div", { class: "bv-metric-note" }, note),
+  );
+}
+
+/// The word-recognition card: this is the component that turns speech into
+/// commands, so it gets its own status block rather than hiding inside Settings.
+function sttCard(ctx: PaneCtx): HTMLElement {
+  const st = getState();
+  const stt = st.status?.stt;
+  const running = !!stt?.running;
+  const enabled = !!stt?.enabled;
+  const note = stt?.lastError
+    ? `Error: ${stt.lastError}`
+    : stt?.lastText
+      ? `Last heard: ${stt.lastText}`
+      : enabled
+        ? `Waiting \u00b7 ${stt?.recognised ?? 0} utterances processed`
+        : "Disabled in Settings";
+
+  const toggle = el("button", { class: "bv-btn", type: "button" });
+  toggle.appendChild(document.createTextNode(enabled ? "Disable" : "Enable"));
+  toggle.addEventListener("click", async () => {
+    const current = getState().settings;
+    if (!current) return;
+    try {
+      const next = await bridge.saveSettings({ ...current, sttEnabled: !enabled });
+      setState({ settings: next });
+      setState({ status: await bridge.getStatus() });
+      ctx.toast(next.sttEnabled ? "Speech recognition enabled" : "Speech recognition disabled");
+    } catch (e) {
+      ctx.toast("Could not change the setting", String(e), "critical");
+    }
+  });
+
+  return el(
+    "div",
+    { class: "bv-card" },
+    el(
+      "div",
+      { class: "bv-card-title" },
+      svgIcon(ICONS.activity, 16),
+      "Speech Recognition",
+      el("span", { class: `bv-badge ${stt?.lastError ? "warn" : running ? "ok" : "danger"}`, style: "margin-left:auto" },
+        stt?.lastError ? "Fault" : running ? "Active" : enabled ? "Starting" : "Off"),
+    ),
+    el("div", { class: "bv-metric-note", style: "margin:8px 0 4px" }, note),
+    el("div", { class: "bv-metric-note" }, `Endpoint: ${stt?.endpoint ?? "—"}`),
+    el("div", { class: "bv-metric-note" }, `Language: ${stt?.language ?? "—"} \u00b7 ${stt?.live ? "streaming" : "whole utterance"}`),
+    el("div", { style: "margin-top:10px;display:flex;gap:8px" }, toggle),
   );
 }
 

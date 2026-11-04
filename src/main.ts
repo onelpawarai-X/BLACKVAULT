@@ -76,6 +76,9 @@ async function bootPrimary(): Promise<void> {
       case "challenge":
         lock.setChallenge(e.payload.factors);
         break;
+      case "appChallenge":
+        showAppChallenge(e.payload);
+        break;
       case "unlocked":
         lock.playUnlock(true, "ACCESS GRANTED", e.payload.token);
         break;
@@ -93,6 +96,67 @@ async function bootPrimary(): Promise<void> {
   });
 
   subscribe(() => applyAnim());
+
+  // A protected application was opened outside BLACKVAULT. It is still running:
+  // the guard holds it for a grace period instead of killing it outright, and
+  // this is where the user proves they are allowed to have it.
+  let appPrompt: HTMLElement | null = null;
+  function showAppChallenge(p: {
+    ruleId: number;
+    displayName: string;
+    graceSecs: number;
+  }): void {
+    if (appPrompt) return;
+    const card = el("div", { class: "bv-appchallenge" });
+    const title = el("div", { class: "bv-appchallenge-title" }, `${p.displayName} is protected`);
+    const body = el(
+      "div",
+      { class: "bv-appchallenge-body" },
+      `Authenticate to keep it running. It closes in ${Math.max(0, Math.round(p.graceSecs))} seconds otherwise.`,
+    );
+    const pin = el("input", {
+      class: "bv-input",
+      type: "password",
+      placeholder: "PIN or passphrase",
+      autocomplete: "off",
+    }) as HTMLInputElement;
+    const actions = el("div", { class: "bv-appchallenge-actions" });
+    const close = (): void => {
+      card.remove();
+      appPrompt = null;
+    };
+    const allow = async (): Promise<void> => {
+      try {
+        await bridge.submitPin(pin.value);
+      } catch {
+        /* fall through to the explicit authorise below */
+      }
+      try {
+        await bridge.authorizeApp(p.ruleId);
+        toast(toastHost, "Application released", `${p.displayName} may keep running.`);
+      } catch (e) {
+        toast(toastHost, "Could not release", String(e), "critical");
+      }
+      close();
+    };
+    const deny = (): void => {
+      void bridge.setAppLock(p.ruleId, true);
+      close();
+    };
+    pin.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") void allow();
+      if (ev.key === "Escape") deny();
+    });
+    const allowBtn = el("button", { class: "bv-btn primary", type: "button" }, "Authenticate");
+    allowBtn.addEventListener("click", () => void allow());
+    const denyBtn = el("button", { class: "bv-btn ghost", type: "button" }, "Close it");
+    denyBtn.addEventListener("click", deny);
+    actions.append(allowBtn, denyBtn);
+    card.append(title, body, pin, actions);
+    root.appendChild(card);
+    appPrompt = card;
+    pin.focus();
+  }
 
   // ------------------------------------------------------------------- boot
   try {

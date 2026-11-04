@@ -86,8 +86,21 @@ Two mechanisms, both honoured by Windows itself:
 
 - **NTFS DACL.** The item's current security descriptor is read, converted to
   SDDL and kept as the *open* state. Sealing replaces the DACL with one that
-  denies the interactive user while granting SYSTEM and Administrators. The file
+  denies the interactive user **and `Authenticated Users`** the rights to read,
+  write, execute and delete, while granting SYSTEM and Administrators. The file
   cannot be opened, listed or executed while sealed.
+
+  Denying `Authenticated Users` as well as the user's own SID is load-bearing,
+  not belt-and-braces. A deny ACE only overrides an allow ACE *for the same
+  trustee*, so on an account that belongs to Administrators the old
+  `(A;;GA;;;BA)` allow matched the token and the sealed file opened anyway —
+  that was a real bug. `AU` is in every interactive token, administrator
+  included, so denying it closes the hole.
+
+  The rights denied are `0x10067` (read/list, write, append, execute, delete
+  child, delete) and deliberately **not** `GA`. Denying `GA` would deny
+  `WRITE_DAC` too, and the owner's right to rewrite the DACL is the only thing
+  that lets BLACKVAULT release the item again.
 - **EFS.** `EncryptFileW` marks the file encrypted at rest, so the content is
   unreadable without the user's EFS key even if the DACL is bypassed offline.
 
@@ -99,12 +112,21 @@ configured without it; when that happens the applied label reports `acl` rather
 than `acl+efs`. An Administrator can always take ownership of a file — that is
 what Administrator means. Protecting files you do not own needs elevation.
 
+Both protections are re-checked. The supervisor re-applies the DACL every few
+seconds if a sealed item's deny ACE has been edited away, so a protection that
+was removed by hand does not stay removed. Releasing an item is itself an
+authenticated action: `reveal_path` asks for the same factor as unlocking a
+protected application, and the item re-seals on the next lock.
+
 ### 2.5 Application lock
 
-A watchdog enumerates processes every 1.2 s. A process matching a *locked*,
-*require-auth* rule with no live authorisation is terminated, and the event is
-logged. Authorisations are time-bounded (5 minutes) and granted only after a
-successful authentication or a launch through BLACKVAULT.
+A watchdog enumerates processes every 0.4 s. When a process matches a *locked*,
+*require-auth* rule with no live authorisation, BLACKVAULT raises an
+authentication prompt and gives the process a 20-second grace period before
+terminating it. Killing a protected application the instant it appeared — with
+no prompt — was a real bug: the application flashed up, vanished, and nothing
+ever asked for a password. Authorisations are time-bounded (5 minutes) and
+granted only after a successful authentication or a launch through BLACKVAULT.
 
 **Honest limit.** This is a race, not a wall: between a process starting and the
 next watchdog tick, it exists for up to 1.2 s. It is designed to stop a

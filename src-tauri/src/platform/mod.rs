@@ -13,6 +13,7 @@ pub mod launcher;
 pub mod lock;
 pub mod service;
 pub mod speech;
+pub mod stt;
 
 pub use applock::*;
 pub use automation::*;

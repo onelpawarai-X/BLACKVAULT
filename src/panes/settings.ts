@@ -46,6 +46,37 @@ export const settingsPane: Pane = {
         row("Listen while locked", "Keep recognising speech on the lock screen.", s.listenWhileLocked, (v) => save({ listenWhileLocked: v })),
         row("Spoken feedback", "Confirm commands with a short spoken acknowledgement.", s.voiceFeedback, (v) => save({ voiceFeedback: v })),
       ]),
+      group("Speech recognition", [
+        row(
+          "Use the ZYRAXON speech-to-text service",
+          "Recognises what you say through your own endpoint. Works even when Windows has no offline recogniser.",
+          s.sttEnabled,
+          (v) => save({ sttEnabled: v }),
+        ),
+        selectRow(
+          "Language",
+          s.sttLanguage,
+          [
+            ["en", "English"],
+            ["bn", "Bengali"],
+            ["both", "Both (English + Bengali)"],
+          ],
+          (v) => save({ sttLanguage: v }),
+        ),
+        row(
+          "Live streaming",
+          "Send audio while you are still speaking, so a command lands sooner.",
+          s.sttLive,
+          (v) => save({ sttLive: v }),
+        ),
+        textRow("Endpoint", s.sttEndpoint, (v) => save({ sttEndpoint: v })),
+        numberRow(
+          "Minimum confidence (0–100)",
+          Math.round(s.sttMinConfidence * 100),
+          (v) => save({ sttMinConfidence: Math.min(1, Math.max(0, v / 100)) }),
+        ),
+        sttTestRow(ctx),
+      ]),
       group("Lock screen", [
         selectRow("Lock animation", s.lockAnimation, [["iris", "Iris collapse"], ["shutter", "Shutter"], ["dissolve", "Dissolve"]], (v) => save({ lockAnimation: v as Settings["lockAnimation"] })),
         selectRow("Unlock animation", s.unlockAnimation, [["bloom", "Light bloom"], ["rings", "Ripple rings"], ["vortex", "Vortex"]], (v) => save({ unlockAnimation: v as Settings["unlockAnimation"] })),
@@ -139,6 +170,35 @@ function selectRow(label: string, value: string, options: [string, string][], on
     { class: "bv-row" },
     el("div", { class: "bv-row-main" }, el("div", { class: "bv-row-name" }, label)),
     sel,
+  );
+}
+
+function sttTestRow(ctx: PaneCtx): HTMLElement {
+  const out = el("div", { class: "bv-row-meta", style: "min-height:18px" }, "Not tested yet.");
+  const actions = el("div", { style: "display:flex;gap:8px;flex-wrap:wrap" }, out);
+  const test = btn("Test connection", "ghost", async () => {
+    out.textContent = "Contacting the endpoint\u2026";
+    const current = getState().settings;
+    if (!current) return;
+    try {
+      const t = await bridge.probeStt(current);
+      out.textContent = t.text
+        ? `Reachable \u00b7 ${t.locale || t.engine || "ok"} \u00b7 heard \u201c${t.text}\u201d`
+        : `Reachable \u00b7 ${t.locale || t.engine || "ok"} \u00b7 silence recognised as empty text`;
+    } catch (e) {
+      out.textContent = `Failed: ${String(e)}`;
+      ctx.toast("Speech service unreachable", String(e), "critical");
+    }
+  });
+  actions.insertBefore(test, out);
+  return el(
+    "div",
+    { class: "bv-row" },
+    el("div", { class: "bv-row-main" },
+      el("div", { class: "bv-row-name" }, "Connection"),
+      el("div", { class: "bv-row-meta" }, "Sends half a second of silence and reports what comes back."),
+    ),
+    actions,
   );
 }
 

@@ -51,6 +51,7 @@ pub fn run() {
             // status & settings
             commands::get_status,
             commands::get_settings,
+            commands::probe_stt,
             commands::save_settings,
             commands::get_voice_status,
             commands::get_mic_status,
@@ -105,6 +106,7 @@ pub fn run() {
             commands::protect_path,
             commands::unprotect_path,
             commands::reveal_path,
+            commands::reseal_path,
             // automation
             commands::run_automation,
             commands::press_keys,

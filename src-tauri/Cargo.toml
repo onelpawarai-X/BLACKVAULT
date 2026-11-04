@@ -1,6 +1,6 @@
 [package]
 name = "blackvault"
-version = "1.1.0"
+version = "1.2.0"
 description = "BLACKVAULT — Your Voice. Your Control. Your Security."
 authors = ["BLACKVAULT"]
 edition = "2021"
@@ -54,6 +54,10 @@ base64 = "0.22"
 cpal = "0.15"
 rustfft = "6"
 num-complex = "0.4"
+
+# Speech-to-text over the ZYRAXON endpoint. Blocking, tiny, rustls — the whole
+# request is one multipart POST of an in-memory WAV.
+ureq = "2"
 
 # Threading
 parking_lot = "0.12"

@@ -73,6 +73,10 @@ export function createLockScreen(host: HTMLElement): LockController {
   let levelBars: HTMLElement[] = [];
 
   // ---------------------------------------------------------------- locking
+  //
+  // The lock ceremony is the vault door closing: an iris that collapses to a
+  // line, a white shockwave that rings out of it, a scan that sweeps the whole
+  // screen, and the vault glyph that seals shut with its bolts driving home.
   function playLocking(reason?: string): void {
     phase = "locking";
     root.style.display = "flex";
@@ -84,17 +88,30 @@ export function createLockScreen(host: HTMLElement): LockController {
     const shock = el("div", { class: "bv-shock" });
     const scan = el("div", { class: "bv-scan" });
 
+    const vault = svgIcon(ICONS.vault, 132);
+    vault.setAttribute("stroke-width", "0.9");
+    const bolts = el(
+      "div",
+      { class: "bv-vault-bolts" },
+      el("i", {}),
+      el("i", {}),
+      el("i", {}),
+      el("i", {}),
+    );
+    const word = el(
+      "div",
+      { class: "bv-lock-title bv-sealing-word" },
+      "SECURING",
+    );
+
     mount(
       root,
       el("div", { class: "bv-iris" }, top, bottom, line, shock, scan),
       el(
         "div",
-        { class: "bv-lock-core" },
-        el(
-          "div",
-          { class: "bv-lock-title", style: "color:rgba(255,255,255,0.55)" },
-          "SECURING",
-        ),
+        { class: "bv-lock-core bv-vault-core" },
+        el("div", { class: "bv-vault-glyph" }, vault, bolts),
+        word,
       ),
     );
 
@@ -399,14 +416,37 @@ export function createLockScreen(host: HTMLElement): LockController {
     );
     const sweep = el("div", { class: "bv-unlock-sweep" });
 
+    // The shutter is the vault door opening: two halves draw apart along a
+    // seam of light, which is what the iris did on the way in, played backwards
+    // so the two ceremonies read as one door.
+    const shutter = el(
+      "div",
+      { class: "bv-unlock-shutter" },
+      el("div", { class: "bv-shutter-half bv-shutter-l" }),
+      el("div", { class: "bv-shutter-half bv-shutter-r" }),
+      el("div", { class: "bv-shutter-seam" }),
+    );
+
     const glyph = svgIcon(ok ? ICONS.unlock : ICONS.lock, 84);
     glyph.setAttribute("stroke-width", "1.1");
+
+    // A ring of light that fires outward the instant the door parts, plus a
+    // burst of shards when the vault is genuinely opened.
+    const burst = el(
+      "div",
+      { class: "bv-unlock-burst" },
+      ...Array.from({ length: 18 }, (_, i) =>
+        el("i", { style: `--a:${i * 20}deg;--d:${140 + (i % 5) * 46}px;--t:${i * 26}ms` }),
+      ),
+    );
 
     const anim = el(
       "div",
       { class: "bv-unlock-anim" },
       variant === "rings" ? rings : variant === "vortex" ? el("div", { class: "bv-unlock-vortex" }, rings) : bloom,
+      ok ? shutter : null,
       sweep,
+      ok ? burst : null,
       el(
         "div",
         { class: "bv-unlock-glyph" },

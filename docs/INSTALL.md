@@ -34,18 +34,28 @@ The first-run wizard walks through, in order:
 4. **Pattern** — optional 3×3 pattern factor.
 5. **Windows Hello** — offered only if the device supports it.
 6. **Voice** — optional voiceprint enrolment, so the voice itself must match too.
-7. **Startup** — start with Windows, start minimised, always-on listening.
+7. **Recognition** — choose the recognition language and press *Test recognition
+   service* to confirm the endpoint answers before you leave setup.
+8. **Startup** — start with Windows, start minimised, always-on listening.
 
 Every step is skippable, and so is the whole wizard: you can leave with nothing
 set and configure everything later from Settings. The one thing the app will not
 do is lock you out — if no factor is configured at all, the lock screen refuses
 to engage and says why.
 
-If spoken commands do nothing, check the dashboard: the **Speech Recogniser**
-tile reads *Unavailable* when Windows has no recogniser installed. Add the
-*Speech* language feature under Settings → Time & Language → Language → English
-→ Language options. Everything else — PIN, pattern, passphrase, app lock, file
-protection — works regardless.
+If spoken commands do nothing, look at the two cards on the dashboard. They are
+separate recognisers and either one working is enough:
+
+* **Speech Service** — the endpoint recogniser. Settings → Speech recognition →
+  *Test connection* says whether the endpoint answers and which language it
+  accepted. If it fails, check the machine has a working network connection to
+  the endpoint.
+* **Speech Recogniser** — Windows SAPI. The tile reads *Unavailable* when no
+  offline recogniser is installed; add the *Speech* language feature under
+  Settings → Time & Language → Language → English → Language options.
+
+Everything else — PIN, pattern, passphrase, app lock, file protection — works
+regardless of speech.
 
 ## 2. Building from source
 

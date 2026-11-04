@@ -46,6 +46,30 @@ pub struct Settings {
     pub lock_on_sleep: bool,
     pub lock_on_screen_saver: bool,
     pub block_task_switch_when_locked: bool,
+    /// Recognise spoken words through the ZYRAXON STT endpoint. This is the path
+    /// that works on machines with no offline recogniser installed.
+    #[serde(default = "t")]
+    pub stt_enabled: bool,
+    #[serde(default = "default_stt_endpoint")]
+    pub stt_endpoint: String,
+    /// `en` or `bn`. The service does not detect the language, so it is explicit.
+    #[serde(default = "default_stt_language")]
+    pub stt_language: String,
+    /// Stream the audio while the person is still speaking, instead of waiting
+    /// for the utterance to end. Lower latency, one long request.
+    #[serde(default)]
+    pub stt_live: bool,
+    /// Transcripts below this confidence are ignored. 0 accepts everything.
+    #[serde(default)]
+    pub stt_min_confidence: f32,
+}
+
+fn default_stt_endpoint() -> String {
+    crate::platform::stt::DEFAULT_ENDPOINT.into()
+}
+
+fn default_stt_language() -> String {
+    "en".into()
 }
 
 impl Default for Settings {
@@ -87,6 +111,11 @@ impl Default for Settings {
             lock_on_sleep: true,
             lock_on_screen_saver: true,
             block_task_switch_when_locked: false,
+            stt_enabled: true,
+            stt_endpoint: default_stt_endpoint(),
+            stt_language: default_stt_language(),
+            stt_live: false,
+            stt_min_confidence: 0.0,
         }
     }
 }
@@ -107,6 +136,15 @@ impl Settings {
         if self.wake_phrase.trim().is_empty() {
             self.wake_phrase = "black vault".into();
         }
+        if self.stt_endpoint.trim().is_empty() {
+            self.stt_endpoint = default_stt_endpoint();
+        }
+        match self.stt_language.trim().to_ascii_lowercase().as_str() {
+            "bn" | "bn-bd" | "bengali" => self.stt_language = "bn".into(),
+            "both" | "auto" => self.stt_language = "both".into(),
+            _ => self.stt_language = "en".into(),
+        }
+        self.stt_min_confidence = self.stt_min_confidence.clamp(0.0, 1.0);
         match self.second_factor.as_str() {
             "pin" | "pattern" | "hello" | "voiceprint" | "passphrase" => {}
             _ => self.second_factor = "pin".into(),

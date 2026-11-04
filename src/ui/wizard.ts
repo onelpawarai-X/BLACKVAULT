@@ -11,7 +11,7 @@ import { ICONS } from "../lib/icons";
 import { getState, setState } from "../lib/store";
 import type { Settings } from "../lib/types";
 
-const STEPS = ["Identity", "Passphrase", "PIN", "Pattern", "Windows Hello", "Voice", "Startup"] as const;
+const STEPS = ["Identity", "Passphrase", "PIN", "Pattern", "Windows Hello", "Voice", "Recognition", "Startup"] as const;
 
 export function createWizard(host: HTMLElement, onDone: () => void): void {
   let step = 0;
@@ -83,6 +83,7 @@ export function createWizard(host: HTMLElement, onDone: () => void): void {
       case "PIN": return stepPin();
       case "Pattern": return stepPattern();
       case "Windows Hello": return stepHello();
+      case "Recognition": return stepRecognition();
       case "Voice": return stepVoice();
       case "Startup": return stepStartup();
     }
@@ -258,6 +259,53 @@ export function createWizard(host: HTMLElement, onDone: () => void): void {
       }
     });
     mount(body, el("div", { class: "bv-label" }, "Voice identity"), el("div", { style: "margin:10px 0" }, wave), el("div", { style: "display:flex;gap:10px;align-items:center" }, rec), note, nav());
+  }
+
+  // The step that makes the difference between a demo and a working
+  // installation: confirm the speech service actually answers before the user
+  // leaves setup, so they are never left wondering why nothing is recognised.
+  function stepRecognition(): void {
+    let lang = draft.sttLanguage ?? "both";
+    const note = el(
+      "div",
+      { class: "bv-hint" },
+      "BLACKVAULT recognises speech through your own endpoint. Nothing is stored; audio is sent for recognition and discarded.",
+    );
+    const sel = el("select", { class: "bv-select" });
+    for (const [v, l] of [
+      ["en", "English"],
+      ["bn", "Bengali"],
+      ["both", "Both (English + Bengali)"],
+    ] as [string, string][]) {
+      const o = el("option", { value: v }, l);
+      if (v === lang) o.selected = true;
+      sel.appendChild(o);
+    }
+    sel.addEventListener("change", () => {
+      lang = sel.value;
+      draft.sttLanguage = sel.value;
+    });
+    const test = btn("Test recognition service", "default", async () => {
+      note.textContent = "Contacting the endpoint\u2026";
+      const current = getState().settings;
+      if (!current) return;
+      try {
+        const t = await bridge.probeStt({ ...current, sttLanguage: lang, sttEnabled: true });
+        note.textContent = `Reachable \u00b7 ${t.locale || t.engine || "ok"} \u00b7 recognised ${t.text ? `\u201c${t.text}\u201d` : "silence"}`;
+        note.style.color = "var(--ok)";
+      } catch (e) {
+        note.textContent = `Could not reach the service: ${String(e)}. You can continue and fix this in Settings.`;
+        note.style.color = "var(--warn)";
+      }
+    });
+    mount(
+      body,
+      el("div", { class: "bv-label" }, "Speech recognition"),
+      field("Language", sel, "Pick Both if you speak English and Bengali in the same session."),
+      el("div", { style: "display:flex;gap:10px;align-items:center;margin:10px 0" }, test),
+      note,
+      nav(),
+    );
   }
 
   function stepStartup(): void {

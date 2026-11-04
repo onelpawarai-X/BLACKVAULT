@@ -287,8 +287,14 @@ impl Db {
         }
         let now = Utc::now().to_rfc3339();
         let defaults: &[(&str, &str, &str, Option<&str>, bool, bool)] = &[
+            // The unlock phrase is deliberately *not* a command: speaking it on
+            // the lock screen must run the passphrase check, never unlock on
+            // words alone. See `on_text`.
             ("lock this pc", "lock", "lock", None, false, true),
-            ("unlock this pc", "unlock", "unlock", None, false, true),
+            ("next", "next", "media_next", None, false, true),
+            ("next video", "next video", "media_next", None, false, true),
+            ("scroll", "scroll", "scroll", Some("down:600"), false, true),
+            ("press enter", "press enter", "key_press", Some("enter"), false, true),
             ("next", "next", "media_next", None, false, true),
             ("previous", "previous", "media_prev", None, false, true),
             ("play", "play", "media_play_pause", None, false, true),

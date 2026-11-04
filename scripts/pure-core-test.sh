@@ -43,6 +43,7 @@ log = "0.4"
 zeroize = { version = "1", features = ["derive"] }
 rustfft = "6"
 num-complex = "0.4"
+ureq = "2"
 TOML
 
 cat > "$work/src/lib.rs" <<'RS'
@@ -72,6 +73,7 @@ pub mod launcher;
 pub mod lock;
 pub mod service;
 pub mod speech;
+pub mod stt;
 RS
 
 # Modules shared verbatim with the real crate.
@@ -79,7 +81,7 @@ for f in auth.rs crypto.rs db.rs dsp.rs error.rs models.rs settings.rs \
          voice/matcher.rs voice/router.rs voice/vad.rs \
          platform/applock.rs platform/automation.rs platform/fileprot.rs \
          platform/hello.rs platform/launcher.rs platform/lock.rs platform/service.rs \
-         platform/speech.rs; do
+         platform/speech.rs platform/stt.rs; do
   cp "$src/$f" "$work/src/$f"
 done
 

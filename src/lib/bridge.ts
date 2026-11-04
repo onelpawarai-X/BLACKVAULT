@@ -120,6 +120,14 @@ export const protectPath = (path: string, encryption: ProtectedItem["encryption"
   call<ProtectedItem>("protect_path", { path, encryption });
 export const unprotectPath = (id: number) => call<void>("unprotect_path", { id });
 export const revealPath = (id: number) => call<void>("reveal_path", { id });
+export const resealPath = (id: number) => call<void>("reseal_path", { id });
+/** Confirm a protected application may keep running (the grace prompt). */
+export const authorizeApp = (id: number) => call<unknown>("set_app_lock", { id, locked: false });
+/** Ask the STT endpoint whether the configured language/endpoint works. */
+export const probeStt = (settings: Settings) =>
+  call<{ text: string; locale: string; confidence: number; engine: string }>("probe_stt", {
+    settings,
+  });
 
 // ============================ Automation ================================
 
@@ -156,6 +164,10 @@ export type CoreEvent =
   | { type: "auth"; payload: AuthResult }
   | { type: "event"; payload: SecurityEvent }
   | { type: "challenge"; payload: { factors: string[] } }
+  | {
+      type: "appChallenge";
+      payload: { ruleId: number; processName: string; displayName: string; graceSecs: number };
+    }
   | { type: "unlocked"; payload: { token: string } }
   | { type: "settings"; payload: Settings }
   | { type: "toast"; payload: { title: string; body: string; severity: string } };

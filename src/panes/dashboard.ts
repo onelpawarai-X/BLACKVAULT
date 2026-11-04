@@ -52,6 +52,19 @@ export const dashboardPane: Pane = {
           status?.speechAvailable ? "ok" : "warn",
         ),
         metric(
+          "Speech Service",
+          status?.stt?.enabled ? (status.stt.running ? "Active" : "Starting") : "Off",
+          status?.stt?.lastError
+            ? `Error: ${status.stt.lastError}`
+            : status?.stt?.lastText
+              ? `Heard: ${status.stt.lastText}`
+              : status?.stt?.enabled
+                ? `ZYRAXON \u00b7 ${status.stt.language} \u00b7 ${status.stt.recognised} heard`
+                : "Enable it in Settings",
+          ICONS.activity,
+          status?.stt?.lastError ? "warn" : status?.stt?.enabled ? "ok" : "off",
+        ),
+        metric(
           "Microphone",
           st.mic?.muted ? "Muted" : st.mic?.permission === "granted" ? "Live" : "Unknown",
           st.mic?.deviceName ?? "No device",

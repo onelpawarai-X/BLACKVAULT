@@ -67,6 +67,14 @@ There are two listeners, and they answer different questions:
   speech-recognition grammar built from the wake phrase, the unlock phrase and
   every enabled command, and reports recognised text.
 
+* **`platform/stt.rs` (the ZYRAXON endpoint)** answers *what was said* as well,
+  and it is the path that works on a machine where SAPI has no grammar for the
+  user's phrases. It takes the 16 kHz PCM the capture thread already produced and
+  posts it to the endpoint in a WAV container, then feeds the transcript into the
+  same `on_text` path as SAPI. It runs alongside SAPI rather than instead of it:
+  whichever hears the command first wins, and a dedup guard in `execute_command`
+  stops one utterance firing twice.
+
 Commands are matched on the recognised **text**, which is what makes a
 newly-typed command work immediately: no recording step is required. When the
 overlay is up and a passphrase is configured, a free-form dictation grammar is
