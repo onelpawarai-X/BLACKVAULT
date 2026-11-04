@@ -321,9 +321,7 @@ impl Db {
             // already is, which is what "click" means when the user is pointing
             // at something.
             ("scroll top", "scroll top", "scroll_top", None, false, true),
-            ("scroll to top", "scroll to top", "scroll_top", None, false, true),
             ("scroll bottom", "scroll bottom", "scroll_bottom", None, false, true),
-            ("scroll to bottom", "scroll to bottom", "scroll_bottom", None, false, true),
             ("page down", "page down", "key_press", Some("pagedown"), false, true),
             ("page up", "page up", "key_press", Some("pageup"), false, true),
             ("space bar", "space bar", "key_press", Some("space"), false, true),
