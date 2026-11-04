@@ -19,11 +19,12 @@ telemetry.
 | Area | Behaviour |
 |---|---|
 | **Lock by voice** | Say *"lock this PC"*. A borderless, top-most, full-screen black overlay covers the desktop on every monitor. Background processes, downloads and AI agents keep running. |
-| **Unlock by voice** | Say *"unlock this PC"*, then your secret passphrase. The words must hash-match your stored passphrase **and** the voice must match your enrolled voiceprint. With a second factor enabled, you then supply your PIN, pattern or Windows Hello. |
+| **Unlock by voice** | Say *"unlock this PC"*, then speak your secret passphrase. The recognised words must hash-match the stored passphrase, and the configured second factor (PIN, pattern or Windows Hello) still has to follow. Optionally enrol a voiceprint so the voice itself must match as well. |
 | **Voice launcher** | *"open chrome"*, *"open visual studio code"* — only apps on your approved list can ever be launched by voice. |
 | **App lock** | Protect any `.exe`. A watchdog terminates it while locked, and releases it only after you authenticate. |
 | **File & folder protection** | NTFS deny-ACL plus EFS content encryption. Never hide, never rename. |
 | **Automation** | *"next"*, *"previous"*, *"scroll down"*, *"click"*, *"press enter"*, *"volume up"*, *"mute"*, *"show desktop"*, *"take a screenshot"*, and arbitrary key combos. All through real `SendInput`. |
+| **Word recognition** | Offline, on-device, no cloud and no model download: Windows SAPI with a grammar built from your wake phrase, unlock phrase and every command. Type a command and it works immediately — there is no training step. |
 | **Factors** | Secret passphrase, numeric PIN, 3×3 pattern, Windows Hello (fingerprint/face/PIN). All local, all salted-hashed, all rate limited. |
 
 ## What it deliberately does **not** do
@@ -43,6 +44,11 @@ telemetry.
 - Windows 10 (build 1809+) or Windows 11, 64-bit
 - A microphone
 - .NET/WebView2 runtime (preinstalled on Windows 11 and current Windows 10)
+- For spoken commands: a Windows speech recogniser. Most installs have one; if
+  not, add the *Speech* language feature under Settings → Time & Language →
+  Language → English → Language options. Without it BLACKVAULT says so in the
+  dashboard instead of pretending voice control works, and every other feature
+  (PIN, pattern, passphrase, app lock, file protection) is unaffected.
 - Administrator rights **only** for protecting files and folders you do not own
 
 ## Install
@@ -99,7 +105,7 @@ src-tauri/                Rust core
     engine.rs             background threads: voice routing, app guard, tray
     voice/                capture, VAD, MFCC/DTW matcher, router
     platform/             Windows integration (lock, hello, applock, fileprot,
-                          automation, launcher, service)
+                          automation, launcher, service, speech)
     auth.rs               the authentication policy
     crypto.rs             PBKDF2 hashing and DPAPI sealing
     db.rs                 SQLite persistence

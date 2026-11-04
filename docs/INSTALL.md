@@ -27,16 +27,25 @@ one configuration; delete that folder to start clean.
 
 The first-run wizard walks through, in order:
 
-1. **Welcome** — what the app does, and the one thing it will not do (replace
-   the Windows secure session lock).
-2. **Secret passphrase** — the primary voice unlock. At least three words.
-3. **Voice identity** — a few samples of your own voice. Skippable.
-4. **PIN** — optional numeric factor. Skippable.
-5. **Windows Hello** — offered only if the device supports it. Skippable.
-6. **Start with Windows** — the auto-start preference.
+1. **Identity** — your name. Cosmetic: it greets you on the lock screen.
+2. **Passphrase** — the primary voice unlock. At least three words. This is the
+   phrase you will say when the vault is locked.
+3. **PIN** — optional numeric factor.
+4. **Pattern** — optional 3×3 pattern factor.
+5. **Windows Hello** — offered only if the device supports it.
+6. **Voice** — optional voiceprint enrolment, so the voice itself must match too.
+7. **Startup** — start with Windows, start minimised, always-on listening.
 
-Every step is skippable. You can leave with only a passphrase set, or with
-nothing set at all and configure everything later from Settings.
+Every step is skippable, and so is the whole wizard: you can leave with nothing
+set and configure everything later from Settings. The one thing the app will not
+do is lock you out — if no factor is configured at all, the lock screen refuses
+to engage and says why.
+
+If spoken commands do nothing, check the dashboard: the **Speech Recogniser**
+tile reads *Unavailable* when Windows has no recogniser installed. Add the
+*Speech* language feature under Settings → Time & Language → Language → English
+→ Language options. Everything else — PIN, pattern, passphrase, app lock, file
+protection — works regardless.
 
 ## 2. Building from source
 
