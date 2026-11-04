@@ -57,12 +57,17 @@ impl Default for Settings {
             wake_phrase_enabled: true,
             wake_phrase: "black vault".into(),
             wake_phrase_sensitivity: 0.6,
-            require_wake_for_commands: true,
+            // Off by default: requiring the wake phrase before *every* command
+            // is the main reason a first-time user thinks voice control is
+            // broken. It stays available as an opt-in in Settings.
+            require_wake_for_commands: false,
             listen_while_locked: true,
             voice_feedback: false,
             lock_animation: "iris".into(),
             unlock_animation: "bloom".into(),
-            hide_cursor_when_locked: true,
+            // The overlay needs a pointer for the PIN field and the pattern
+            // grid; hiding it made the lock screen unusable.
+            hide_cursor_when_locked: false,
             multi_monitor_overlay: true,
             auto_relock_secs: 0,
             auth_rate_limit_attempts: 5,

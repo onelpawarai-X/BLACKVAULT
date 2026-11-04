@@ -183,6 +183,51 @@ pub fn set_task_switch_blocked(blocked: bool) {
 #[cfg(not(windows))]
 pub fn set_task_switch_blocked(_blocked: bool) {}
 
+/// Install a system-wide emergency hotkey (`Ctrl+Alt+B`) that releases the
+/// overlay. This is the last line of defence against a lock-out: even if the
+/// pointer, the keyboard hook or the voice engine all misbehave, the user can
+/// always get back to the desktop. The callback runs on the hotkey thread.
+#[cfg(windows)]
+pub fn install_emergency_hotkey(on_press: Box<dyn Fn() + Send + 'static>) {
+    use windows::Win32::System::Threading::GetCurrentThreadId;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, VK_B,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetMessageW, MSG, WM_HOTKEY};
+
+    static THREAD_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+    let _ = std::thread::Builder::new()
+        .name("blackvault-hotkey".into())
+        .spawn(move || unsafe {
+            let tid = GetCurrentThreadId();
+            THREAD_ID.store(tid, std::sync::atomic::Ordering::Relaxed);
+            // HWND null registers the hotkey against this thread's message queue.
+            if RegisterHotKey(
+                None,
+                1,
+                MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
+                VK_B.0 as u32,
+            )
+            .is_err()
+            {
+                log::warn!("could not register the emergency hotkey Ctrl+Alt+B");
+                return;
+            }
+            let mut msg = MSG::default();
+            while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                if msg.message == WM_HOTKEY {
+                    log::info!("emergency hotkey pressed; releasing the overlay");
+                    on_press();
+                }
+            }
+            let _ = UnregisterHotKey(None, 1);
+        });
+}
+
+#[cfg(not(windows))]
+pub fn install_emergency_hotkey(_on_press: Box<dyn Fn() + Send + 'static>) {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

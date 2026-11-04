@@ -40,7 +40,7 @@ export function renderPassiveOverlay(host: HTMLElement): void {
       {
         class: "bv-lock",
         style:
-          "flex-direction:column;gap:24px;background:#000;cursor:none;",
+          "flex-direction:column;gap:24px;background:#000;",
       },
       el("div", { style: "position:relative;display:grid;place-items:center" }, svg, halo()),
       el(

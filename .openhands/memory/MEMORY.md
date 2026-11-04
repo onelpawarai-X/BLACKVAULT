@@ -309,3 +309,16 @@ security app). Release flow that works, after three failed attempts:
   published the release. Assets: MSI, NSIS setup, portable exe, SHA256SUMS.
 - The user gets angry at long *idle* waits: poll every ~15 s and say what is
   happening; do not sit silent for minutes. And always answer in Bengali.
+
+## The startup panic that shipped in v1.0.0 (2026-11-04)
+`AppState` was built only inside `#[cfg(test)]` code; `run()` never called
+`Builder::manage(AppState::new())`, so `state::on_setup`'s
+`app.state::<Arc<AppState>>()` panicked before the window was shown. The release
+binary is built with `windows_subsystem = "windows"`, so the panic had no console
+— the app just never appeared. **Fixed in v1.0.1.** Lesson: any state a setup hook
+or command reads must be registered with `.manage()`; a GUI-subsystem binary hides
+startup panics, so "the window never opens" almost always means a panic in
+`setup`, not a missing `show()`.
+Also: the release workflow's checksum step hardcoded `1.0.0` filenames — it now
+globs whatever the bundle step produced, so a version bump cannot silently
+produce an empty SHA256SUMS.txt.

@@ -55,6 +55,7 @@ windows = { version = "0.58", features = [
   "Win32_Graphics_Dwm",
   "Win32_Media_Audio",
   "Win32_Media",
+  "Win32_Media_Speech",
   "Win32_System_Com_StructuredStorage",
   "Win32_System_Variant",
   "Foundation",
@@ -63,6 +64,7 @@ windows = { version = "0.58", features = [
   "Win32_Devices_Display",
 ] }
 chrono = { version = "0.4", features = ["serde"] }
+log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
@@ -127,9 +129,10 @@ pub mod hello;
 pub mod launcher;
 pub mod lock;
 pub mod service;
+pub mod speech;
 RS
 
-for f in applock automation fileprot hello launcher lock service; do
+for f in applock automation fileprot hello launcher lock service speech; do
   cp "$src/platform/$f.rs" "src/platform/$f.rs"
 done
 cp "$src/crypto.rs" "src/crypto.rs"

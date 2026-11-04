@@ -16,6 +16,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::db::Db;
 use crate::models::SecurityMode;
 use crate::platform::applock::Authorizations;
+use crate::platform::speech::SpeechEngine;
 use crate::settings::Settings;
 use crate::voice::router::Router;
 use crate::voice::VoiceEngine;
@@ -48,6 +49,9 @@ pub struct AppState {
     pub settings: RwLock<Settings>,
     pub mode: RwLock<SecurityMode>,
     pub voice: VoiceEngine,
+    /// Offline word recognition (Windows SAPI). Separate from `voice`: that one
+    /// proves *who* is speaking, this one works out *what* was said.
+    pub speech: SpeechEngine,
     /// Routing state (wake-phrase arming) that must persist between utterances.
     pub router: Mutex<Router>,
     pub authorizations: Mutex<Authorizations>,
@@ -58,6 +62,8 @@ pub struct AppState {
     pub unlock_token: Mutex<Option<String>>,
     /// Set while the app is shutting down cleanly, so the crash marker is removed.
     pub shutting_down: AtomicBool,
+    /// Whether an offline speech recogniser is usable on this machine.
+    pub speech_available: AtomicBool,
     pub last_mic_level: AtomicU64,
     pub app: Mutex<Option<AppHandle>>,
     pub hello_available: AtomicBool,
@@ -82,11 +88,13 @@ impl AppState {
             settings: RwLock::new(settings),
             mode: RwLock::new(SecurityMode::Unlocked),
             voice: VoiceEngine::new(),
+            speech: SpeechEngine::new(),
             router: Mutex::new(Router::new()),
             authorizations: Mutex::new(Authorizations::new()),
             partial_auth: AtomicBool::new(false),
             unlock_token: Mutex::new(None),
             shutting_down: AtomicBool::new(false),
+            speech_available: AtomicBool::new(false),
             last_mic_level: AtomicU64::new(0),
             app: Mutex::new(None),
             hello_available: AtomicBool::new(false),

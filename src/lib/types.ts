@@ -17,6 +17,7 @@ export interface EngineStatus {
   protectedFolders: number;
   uptimeSecs: number;
   lastAuth: string | null;
+  speechAvailable: boolean;
 }
 
 export interface VoiceStatus {

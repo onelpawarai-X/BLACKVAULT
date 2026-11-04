@@ -43,6 +43,15 @@ export const dashboardPane: Pane = {
           st.voice?.running ? "ok" : "off",
         ),
         metric(
+          "Speech Recogniser",
+          status?.speechAvailable ? "Ready" : "Unavailable",
+          status?.speechAvailable
+            ? "Offline · Windows SAPI"
+            : "No offline recogniser installed — commands need a taught phrase",
+          ICONS.activity,
+          status?.speechAvailable ? "ok" : "warn",
+        ),
+        metric(
           "Microphone",
           st.mic?.muted ? "Muted" : st.mic?.permission === "granted" ? "Live" : "Unknown",
           st.mic?.deviceName ?? "No device",

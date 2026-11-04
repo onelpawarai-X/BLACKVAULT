@@ -23,9 +23,9 @@ frontend, talking over a typed IPC boundary.
 │      ├── db.rs          SQLite: settings, hashes, rules, audit       │
 │      ├── crypto.rs      PBKDF2 hashing, DPAPI sealing                │
 │      ├── dsp.rs         MFCC, DTW, speaker vectors (pure)            │
-│      ├── voice/         capture → VAD → match → route                │
+│      ├── voice/         capture → VAD → match → route (voiceprint)   │
 │      └── platform/      Windows: lock, hello, applock, fileprot,     │
-│                         automation, launcher, service                │
+│                         automation, launcher, service, speech        │
 │                                                                      │
 │  engine.rs     supervisor thread: voice routing, app guard,          │
 │                watchdog, tray                                        │
@@ -52,7 +52,31 @@ behind `#[cfg(windows)]` with an explicit `Unsupported` stub elsewhere.
 |---|---|---|
 | Tauri main | the window, the event loop | process |
 | `blackvault-voice` | the cpal capture stream, VAD, MFCC extraction | restarts on device failure |
+| `blackvault-speech` | the Windows SAPI recogniser and its event loop | restarts on device failure |
+| `blackvault-hotkey` | the `Ctrl+Alt+B` emergency-release hotkey message loop | process |
 | `blackvault-supervisor` | app-guard polling, voice watchdog, auto-relock, grant pruning | process |
+
+### Word recognition vs. voice identity
+
+There are two listeners, and they answer different questions:
+
+* **`voice/` (MFCC + DTW)** answers *who is speaking*. It compares an utterance
+  against enrolled voiceprint templates and is used for the optional
+  voice-identity factor.
+* **`platform/speech.rs` (Windows SAPI)** answers *what was said*. It runs a
+  speech-recognition grammar built from the wake phrase, the unlock phrase and
+  every enabled command, and reports recognised text.
+
+Commands are matched on the recognised **text**, which is what makes a
+newly-typed command work immediately: no recording step is required. When the
+overlay is up and a passphrase is configured, a free-form dictation grammar is
+armed as well, so the passphrase can be spoken. Speech is only ever an input
+method — the phrase is still checked against its PBKDF2 hash and the second
+factor still stands between the words and the desktop.
+
+When no recogniser is installed the engine says so (`speechAvailable: false` on
+the status) rather than implying voice control works; the voiceprint path still
+recognises phrases that have been taught by voice.
 
 The voice thread never blocks on the database or on the UI: it pushes finished
 utterances into a sink callback, which runs the match and the route. The

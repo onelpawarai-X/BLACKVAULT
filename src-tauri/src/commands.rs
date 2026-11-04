@@ -45,6 +45,7 @@ pub fn build_status(state: &Arc<AppState>) -> EngineStatus {
         protected_folders: folders,
         uptime_secs: state.uptime_secs(),
         last_auth: state.db.last_auth_time().ok().flatten(),
+        speech_available: state.speech_available.load(Ordering::Relaxed),
     }
 }
 
@@ -64,6 +65,8 @@ pub fn save_settings(state: St<'_>, settings: Settings) -> BvResult<Settings> {
 
     // Recognition templates depend on the wake phrase and the command set.
     crate::engine::rebuild_templates(&state);
+    // The offline grammar listens for the wake phrase and every command.
+    crate::engine::restart_speech(&state);
 
     // Keep the engine in step with the always-on preference.
     if sanitized.always_on_voice && !state.voice.is_running() {
@@ -251,6 +254,7 @@ pub fn upsert_command(state: St<'_>, command: VoiceCommand) -> BvResult<VoiceCom
     }
     let saved = state.db.upsert_command(&cmd)?;
     crate::engine::rebuild_templates(&state);
+    crate::engine::restart_speech(&state);
     state.log_event(
         "setting_changed",
         "info",
@@ -274,6 +278,7 @@ pub fn delete_command(state: St<'_>, id: i64) -> BvResult<()> {
         let _ = state.db.delete_template(&p);
     }
     crate::engine::rebuild_templates(&state);
+    crate::engine::restart_speech(&state);
     state.log_event("setting_changed", "info", "Voice command deleted", None);
     Ok(())
 }
@@ -308,6 +313,22 @@ pub fn perform_lock(state: &Arc<AppState>, reason: &str) {
     if state.mode() == SecurityMode::Locked {
         return;
     }
+    // Anti-lockout: without at least one configured factor the overlay would be
+    // a one-way door, so refuse to lock and say why instead.
+    if !has_unlock_factor(state) {
+        state.toast(
+            "Lock refused",
+            "Set a PIN, pattern or secret passphrase first so you can unlock again.",
+            "warn",
+        );
+        state.log_event(
+            "lock_refused",
+            "warn",
+            "Lock refused: no unlock factor is configured",
+            Some(reason),
+        );
+        return;
+    }
     let settings = state.settings();
     state.set_mode(SecurityMode::Locked);
     state.partial_auth.store(false, Ordering::Relaxed);
@@ -330,9 +351,10 @@ pub fn perform_lock(state: &Arc<AppState>, reason: &str) {
     }
 
     // 3. Optional hardening while the overlay is up.
-    if settings.hide_cursor_when_locked {
-        platform::lock::hide_cursor();
-    }
+    //
+    // The cursor is deliberately *not* hidden any more. The unlock screen needs
+    // a pointer to click the PIN field or to draw the pattern, and a hidden
+    // system cursor made the lock screen unusable.
     if settings.block_task_switch_when_locked {
         platform::lock::set_task_switch_blocked(true);
     }
@@ -351,10 +373,23 @@ pub fn perform_lock(state: &Arc<AppState>, reason: &str) {
     state.emit(CoreEvent::Status(build_status(state)));
 }
 
+/// Is there at least one way back in? Checked before locking.
+pub fn has_unlock_factor(state: &Arc<AppState>) -> bool {
+    let has = |name: &str| state.db.get_secret(name).ok().flatten().is_some();
+    has(crate::auth::SECRET_PASSPHRASE)
+        || has(crate::auth::SECRET_PIN)
+        || has(crate::auth::SECRET_PATTERN)
+        || state.hello_available()
+}
+
 /// Bring the desktop back.
 pub fn finish_unlock(state: &Arc<AppState>) {
     state.set_mode(SecurityMode::Unlocked);
     state.partial_auth.store(false, Ordering::Relaxed);
+
+    // Undo any hardening the lock applied.
+    platform::lock::show_cursor();
+    platform::lock::set_task_switch_blocked(false);
 
     if let Some(app) = state.app.lock().clone() {
         if let Some(win) = app.get_webview_window("main") {
@@ -365,8 +400,6 @@ pub fn finish_unlock(state: &Arc<AppState>) {
         }
     }
     crate::engine::retract_overlays(state);
-    platform::lock::show_cursor();
-    platform::lock::set_task_switch_blocked(false);
 
     let token = crate::crypto::random_token();
     *state.unlock_token.lock() = Some(token.clone());
@@ -443,6 +476,18 @@ pub fn submit_passphrase(state: St<'_>, phrase: String) -> BvResult<AuthResult> 
     let settings = state.settings();
     let r = auth::verify_passphrase(&state.db, &settings, &phrase)?;
     Ok(after_factor(&state, r, "passphrase"))
+}
+
+/// The spoken-passphrase path used by the lock screen. It runs the *same*
+/// PBKDF2 check as the typed field; speech recognition is only the input
+/// method, never the proof of identity.
+pub fn spoken_passphrase(state: &Arc<AppState>, phrase: &str) -> AuthResult {
+    let settings = state.settings();
+    let r = match auth::verify_passphrase(&state.db, &settings, phrase) {
+        Ok(r) => r,
+        Err(e) => AuthResult::fail("passphrase", format!("Could not verify: {e}"), None),
+    };
+    after_factor(state, r, "passphrase")
 }
 
 #[tauri::command]

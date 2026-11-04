@@ -12,6 +12,7 @@ pub mod hello;
 pub mod launcher;
 pub mod lock;
 pub mod service;
+pub mod speech;
 
 pub use applock::*;
 pub use automation::*;
@@ -20,3 +21,4 @@ pub use hello::*;
 pub use launcher::*;
 pub use lock::*;
 pub use service::*;
+pub use speech::*;

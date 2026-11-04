@@ -13,7 +13,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: default;
+  /* An explicit pointer: the unlock screen needs the arrow to click a factor. */
+  cursor: auto;
 }
 
 /* ---- Phase: LOCKING (the "out of this world" lock animation) ---------- */

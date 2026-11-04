@@ -34,6 +34,21 @@ pub fn spawn(state: Arc<AppState>) {
         s.emit(CoreEvent::Voice(st));
     }));
 
+    // 1b. Offline word recognition. This is what actually understands the
+    // user's phrases; the DTW engine above is kept for the voiceprint check.
+    let s = Arc::clone(&state);
+    state.speech.set_sink(Arc::new(move |text: String| on_text(&s, &text)));
+    let speech_ok = crate::platform::speech::SpeechEngine::available();
+    state
+        .speech_available
+        .store(speech_ok, Ordering::Relaxed);
+    if !speech_ok {
+        log::warn!(
+            "no offline speech recogniser is installed; commands will only work \
+             after a phrase has been taught by voice"
+        );
+    }
+
     // 2. Rebuild the recogniser templates from the database.
     rebuild_templates(&state);
 
@@ -44,6 +59,7 @@ pub fn spawn(state: Arc<AppState>) {
         state.voice.set_wake_phrase(Some(settings.wake_phrase.clone()));
         state.emit(CoreEvent::Voice(st));
     }
+    restart_speech(&state);
 
     // 4. Supervisor thread: app guard + watchdog + timers.
     let sup = Arc::clone(&state);
@@ -54,6 +70,13 @@ pub fn spawn(state: Arc<AppState>) {
 
     // 5. Tray icon.
     build_tray(&state);
+
+    // 6. Emergency release hotkey (Ctrl+Alt+B). This is the guarantee that the
+    // overlay can never become a one-way door.
+    let hot = Arc::clone(&state);
+    crate::platform::lock::install_emergency_hotkey(Box::new(move || {
+        crate::commands::finish_unlock(&hot);
+    }));
 }
 
 /// Load every phrase template and hand them to the matcher.
@@ -114,6 +137,144 @@ fn template_for(state: &Arc<AppState>, phrase: &str) -> Option<Vec<Vec<f32>>> {
         .find(|(p, _, _)| p == phrase)
         .map(|(_, _, m)| m)
         .filter(|m| !m.is_empty())
+}
+
+// ------------------------------------------------- offline word recognition
+
+/// Every phrase the offline recogniser should listen for right now: the wake
+/// phrase, the unlock phrase and each enabled command.
+pub fn speech_phrases(state: &Arc<AppState>) -> Vec<String> {
+    let settings = state.settings();
+    let mut out: Vec<String> = Vec::new();
+    if settings.wake_phrase_enabled && !settings.wake_phrase.trim().is_empty() {
+        out.push(settings.wake_phrase.clone());
+    }
+    out.push("unlock this pc".into());
+    if let Ok(commands) = state.db.list_commands() {
+        for c in commands.iter().filter(|c| c.enabled) {
+            if !c.phrase.trim().is_empty() && !out.contains(&c.phrase) {
+                out.push(c.phrase.clone());
+            }
+        }
+    }
+    out
+}
+
+/// (Re)load the offline recogniser's grammar. Safe to call at any time.
+///
+/// While the overlay is up and the passphrase factor is configured, a dictation
+/// grammar is armed too, so the user can speak the passphrase to unlock.
+pub fn restart_speech(state: &Arc<AppState>) {
+    if !state.speech_available.load(Ordering::Relaxed) {
+        return;
+    }
+    let phrases = speech_phrases(state);
+    let settings = state.settings();
+    let dictation = state.mode() != SecurityMode::Unlocked
+        && settings.listen_while_locked
+        && state
+            .db
+            .get_secret(crate::auth::SECRET_PASSPHRASE)
+            .ok()
+            .flatten()
+            .is_some();
+    state.speech.start(phrases, dictation);
+}
+
+/// A phrase was recognised as *words* by the offline engine.
+///
+/// This is the path that makes the default commands work: the words are matched
+/// against the command list by text, so a command runs the moment it is typed in
+/// the editor — no recording step required.
+fn on_text(state: &Arc<AppState>, text: &str) {
+    let heard = crate::voice::matcher::normalise(text);
+    if heard.is_empty() {
+        return;
+    }
+    let settings = state.settings();
+    let locked = state.mode() != SecurityMode::Unlocked;
+    let wake = crate::voice::matcher::normalise(&settings.wake_phrase);
+
+    state.voice.note_heard(&heard);
+    state.emit(CoreEvent::Heard {
+        text: heard.clone(),
+        is_final: true,
+    });
+
+    // The wake phrase arms commands and never runs anything itself.
+    if settings.wake_phrase_enabled && !wake.is_empty() && heard == wake {
+        state
+            .router
+            .lock()
+            .route(false, &match_for(&heard, "wake"), true, Instant::now());
+        state.toast("Listening", "Say a command.", "info");
+        return;
+    }
+
+    if locked {
+        // On the lock screen the words can *open* the unlock prompt, and the
+        // spoken passphrase is accepted as the first factor — exactly like the
+        // typed field. Identity is never proven by words alone: the passphrase
+        // check is the same PBKDF2 comparison, and the second factor still
+        // stands between the words and the desktop.
+        if heard == "unlock this pc" || heard == wake {
+            let status = crate::commands::begin_unlock(state);
+            state.emit(CoreEvent::Status(status));
+            return;
+        }
+        if state
+            .db
+            .get_secret(crate::auth::SECRET_PASSPHRASE)
+            .ok()
+            .flatten()
+            .is_some()
+            && !state.partial_auth.load(Ordering::Relaxed)
+        {
+            let r = crate::commands::spoken_passphrase(state, &heard);
+            if r.ok {
+                state.toast("Voice phrase accepted", &r.message, "info");
+            } else if r.remaining_attempts != Some(0) {
+                state.toast("Unlock refused", &r.message, "warn");
+            }
+        }
+        return;
+    }
+
+    if settings.require_wake_for_commands && !state.router.lock().armed(Instant::now()) {
+        state.toast("Wake phrase required", "Say the wake phrase first.", "warn");
+        return;
+    }
+
+    let commands = match state.db.list_commands() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let phrases: Vec<String> = commands
+        .iter()
+        .filter(|c| c.enabled)
+        .map(|c| c.phrase.clone())
+        .collect();
+    let Some((phrase, _score)) = crate::voice::matcher::match_text(&heard, &phrases) else {
+        state.toast("Not recognised", &format!("\u{201c}{heard}\u{201d} matches no command."), "warn");
+        return;
+    };
+
+    state.router.lock().disarm();
+    state.voice.note_command(&phrase);
+    state.emit(CoreEvent::Heard {
+        text: phrase.clone(),
+        is_final: true,
+    });
+    execute_command(state, &phrase);
+}
+
+fn match_for(phrase: &str, kind: &str) -> crate::voice::matcher::Match {
+    crate::voice::matcher::Match {
+        phrase: phrase.into(),
+        kind: kind.into(),
+        score: 1.0,
+        distance: 0.0,
+    }
 }
 
 // ------------------------------------------------------------- voice routing
@@ -386,6 +547,8 @@ fn supervisor(state: Arc<AppState>) {
                 crate::platform::lock::set_task_switch_blocked(false);
                 retract_overlays(&state);
             }
+            // The lock screen needs the dictation grammar; the desktop does not.
+            restart_speech(&state);
             last_mode = mode;
         }
 
@@ -404,6 +567,23 @@ fn supervisor(state: Arc<AppState>) {
                     "warn",
                     "Voice engine recovered",
                     Some("the listener had stopped and was restarted"),
+                );
+            }
+            // The offline recogniser must survive a device change or a crash
+            // too: it is the component that actually understands words.
+            if should_run
+                && state.speech_available.load(Ordering::Relaxed)
+                && !state.speech.is_running()
+            {
+                log::warn!("offline recogniser stopped unexpectedly; restarting");
+                state.voice.bump_recovery();
+                restart_speech(&state);
+                let err = state.speech.last_error();
+                state.log_event(
+                    "engine_recovery",
+                    "warn",
+                    "Speech recogniser recovered",
+                    err.as_deref(),
                 );
             }
         }

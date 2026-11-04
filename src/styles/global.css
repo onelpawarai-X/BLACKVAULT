@@ -528,9 +528,25 @@ textarea {
 .bv-list {
   border: 1px solid var(--glass-border);
   border-radius: var(--r);
-  overflow: hidden;
+  /* Long lists scroll inside their own panel instead of being clipped by the
+     card, which is what used to cut the lower rows off. */
+  max-height: min(52vh, 520px);
+  overflow-y: auto;
+  overflow-x: hidden;
   background: var(--bg-elev-1);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
 }
+.bv-list::-webkit-scrollbar { width: 8px; }
+.bv-list::-webkit-scrollbar-track { background: transparent; }
+.bv-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+}
+.bv-list::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28); }
+/* Lists inside a card have the card's padding already, so they only need the
+   scroll cap, not the border. */
+.bv-card .bv-list { border: none; background: transparent; max-height: min(40vh, 380px); }
 .bv-row {
   display: flex;
   align-items: center;

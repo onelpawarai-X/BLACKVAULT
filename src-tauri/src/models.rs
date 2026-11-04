@@ -115,6 +115,9 @@ pub struct EngineStatus {
     pub protected_folders: i64,
     pub uptime_secs: u64,
     pub last_auth: Option<String>,
+    /// Whether an offline speech recogniser is installed and usable. When false
+    /// the UI must say so rather than implying voice commands will work.
+    pub speech_available: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

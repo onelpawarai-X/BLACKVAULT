@@ -46,7 +46,7 @@ export const settingsPane: Pane = {
       group("Lock screen", [
         selectRow("Lock animation", s.lockAnimation, [["iris", "Iris collapse"], ["shutter", "Shutter"], ["dissolve", "Dissolve"]], (v) => save({ lockAnimation: v as Settings["lockAnimation"] })),
         selectRow("Unlock animation", s.unlockAnimation, [["bloom", "Light bloom"], ["rings", "Ripple rings"], ["vortex", "Vortex"]], (v) => save({ unlockAnimation: v as Settings["unlockAnimation"] })),
-        row("Hide the mouse cursor when locked", "The cursor disappears over the overlay.", s.hideCursorWhenLocked, (v) => save({ hideCursorWhenLocked: v })),
+        noteRow("Mouse cursor", "Always visible on the lock screen, so the PIN field and pattern grid can be used."),
         row("Cover every monitor", "Deploy a black overlay on all displays, not just the primary.", s.multiMonitorOverlay, (v) => save({ multiMonitorOverlay: v })),
         numberRow("Auto-relock after (seconds, 0 = off)", s.autoRelockSecs, (v) => save({ autoRelockSecs: v })),
         row("Lock on sleep", "Lock when the machine sleeps.", s.lockOnSleep, (v) => save({ lockOnSleep: v })),
@@ -90,6 +90,14 @@ function row(label: string, note: string, value: boolean, onChange: (v: boolean)
     { class: "bv-row" },
     el("div", { class: "bv-row-main" }, el("div", { class: "bv-row-name" }, label), el("div", { class: "bv-row-meta" }, note)),
     sw,
+  );
+}
+
+function noteRow(label: string, note: string): HTMLElement {
+  return el(
+    "div",
+    { class: "bv-row" },
+    el("div", { class: "bv-row-main" }, el("div", { class: "bv-row-name" }, label), el("div", { class: "bv-row-meta" }, note)),
   );
 }
 

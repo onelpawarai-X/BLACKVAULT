@@ -71,13 +71,15 @@ pub mod hello;
 pub mod launcher;
 pub mod lock;
 pub mod service;
+pub mod speech;
 RS
 
 # Modules shared verbatim with the real crate.
 for f in auth.rs crypto.rs db.rs dsp.rs error.rs models.rs settings.rs \
          voice/matcher.rs voice/router.rs voice/vad.rs \
          platform/applock.rs platform/automation.rs platform/fileprot.rs \
-         platform/hello.rs platform/launcher.rs platform/lock.rs platform/service.rs; do
+         platform/hello.rs platform/launcher.rs platform/lock.rs platform/service.rs \
+         platform/speech.rs; do
   cp "$src/$f" "$work/src/$f"
 done
 
