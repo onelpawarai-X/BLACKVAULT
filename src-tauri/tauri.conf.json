@@ -1,0 +1,82 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "BLACKVAULT",
+  "version": "1.0.0",
+  "identifier": "com.blackvault.desktop",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "BLACKVAULT",
+        "width": 1360,
+        "height": 860,
+        "minWidth": 1040,
+        "minHeight": 680,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false,
+        "backgroundColor": "#000000",
+        "theme": "Dark",
+        "visible": false,
+        "center": true,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: blob: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; script-src 'self'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      },
+      "freezePrototype": true
+    },
+    "trayIcon": {
+      "id": "blackvault-tray",
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": false,
+      "menuOnLeftClick": false
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi", "nsis"],
+    "publisher": "BLACKVAULT",
+    "copyright": "BLACKVAULT",
+    "category": "Utility",
+    "shortDescription": "Voice-controlled personal desktop security system",
+    "longDescription": "BLACKVAULT is an always-running, voice-controlled personal desktop security system. Lock and unlock the desktop by voice, protect applications, files and folders with real Windows access control, and automate the desktop hands-free. All processing is local.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "",
+      "wix": {
+        "language": ["en-US"]
+      },
+      "nsis": {
+        "installMode": "perMachine",
+        "languages": ["English"],
+        "displayLanguageSelector": false
+      }
+    },
+    "resources": [],
+    "externalBin": []
+  },
+  "plugins": {
+    "updater": {
+      "active": false
+    }
+  }
+}

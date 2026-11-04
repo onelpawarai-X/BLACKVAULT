@@ -1,0 +1,322 @@
+/* =========================================================================
+   BLACKVAULT — Full-Screen Security Mode
+   The lock/unlock ceremony. Pure black, silver light, deliberate motion.
+   ========================================================================= */
+
+.bv-lock {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #000;
+  color: #fff;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
+
+/* ---- Phase: LOCKING (the "out of this world" lock animation) ---------- */
+.bv-lock-locking {
+  animation: lockIdle 0.01ms;
+}
+
+/* Collapsing iris: two black panels + a bright hairline that snap shut */
+.bv-iris {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.bv-iris-top,
+.bv-iris-bottom {
+  position: absolute;
+  left: -5%;
+  width: 110%;
+  height: 56%;
+  background: #000;
+  box-shadow: 0 0 60px 20px #000;
+}
+.bv-iris-top { top: 0; transform: translateY(-105%); animation: irisTop 900ms var(--ease) forwards; }
+.bv-iris-bottom { bottom: 0; transform: translateY(105%); animation: irisBottom 900ms var(--ease) forwards; }
+@keyframes irisTop { to { transform: translateY(0); } }
+@keyframes irisBottom { to { transform: translateY(0); } }
+
+.bv-iris-line {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  transform: translateY(-0.5px);
+  background: linear-gradient(90deg, transparent, #fff, transparent);
+  box-shadow: 0 0 24px 3px rgba(255, 255, 255, 0.9);
+  animation: irisLine 900ms var(--ease) forwards;
+}
+@keyframes irisLine {
+  0% { opacity: 0; transform: translateY(-0.5px) scaleX(0.1); }
+  35% { opacity: 1; transform: translateY(-0.5px) scaleX(1); }
+  100% { opacity: 0; transform: translateY(-0.5px) scaleX(1.2); }
+}
+
+/* Radial shockwave emitted at the moment of lock */
+.bv-shock {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 40px;
+  height: 40px;
+  margin: -20px 0 0 -20px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  animation: shock 1000ms var(--ease) 380ms forwards;
+  opacity: 0;
+}
+@keyframes shock {
+  0% { opacity: 0.9; transform: scale(0.4); border-width: 2px; }
+  100% { opacity: 0; transform: scale(38); border-width: 0.5px; }
+}
+
+/* Scanline sweep during lock */
+.bv-scan {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 220px;
+  top: -220px;
+  background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.07), transparent);
+  animation: scan 900ms var(--ease) forwards;
+}
+@keyframes scan { to { top: 110%; } }
+
+/* ---- Steady locked state --------------------------------------------- */
+.bv-lock-core {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+  text-align: center;
+  padding: 40px;
+}
+.bv-lock-core.enter { animation: coreIn 900ms var(--ease) both; }
+@keyframes coreIn {
+  from { opacity: 0; transform: scale(0.9); filter: blur(8px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+.bv-lock-emblem {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  display: grid;
+  place-items: center;
+}
+.bv-lock-emblem svg { width: 78px; height: 78px; }
+.bv-lock-emblem::before,
+.bv-lock-emblem::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+.bv-lock-emblem::before { animation: ring 3.6s linear infinite; }
+.bv-lock-emblem::after {
+  inset: 12px;
+  border-color: rgba(255, 255, 255, 0.09);
+  animation: ring 5.2s linear infinite reverse;
+}
+@keyframes ring { to { transform: rotate(360deg); } }
+.bv-lock-emblem .halo {
+  position: absolute;
+  inset: -40px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.10), transparent 62%);
+  animation: breathe 4s var(--ease-in-out) infinite;
+}
+@keyframes breathe {
+  0%, 100% { opacity: 0.4; transform: scale(0.95); }
+  50% { opacity: 0.85; transform: scale(1.06); }
+}
+
+.bv-lock-title {
+  font-size: 15px;
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+.bv-lock-sub {
+  font-size: 11.5px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.42);
+  max-width: 420px;
+}
+
+/* Live listening indicator */
+.bv-lock-listen {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.bv-lock-listen .label {
+  font-size: 10.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* Heard text */
+.bv-lock-heard {
+  min-height: 22px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+  letter-spacing: 0.02em;
+  font-style: italic;
+}
+
+/* Unlock challenge panel */
+.bv-lock-challenge {
+  width: min(440px, 88vw);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: coreIn 520ms var(--ease) both;
+}
+.bv-lock-challenge .bv-input {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.16);
+  text-align: center;
+  letter-spacing: 0.34em;
+  font-size: 18px;
+  padding: 14px;
+}
+
+/* Wrong passphrase shake */
+.bv-shake { animation: shake 480ms var(--ease-in-out); }
+@keyframes shake {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(4px); }
+  30%, 50%, 70% { transform: translateX(-7px); }
+  40%, 60% { transform: translateX(7px); }
+}
+
+/* ---- Phase: UNLOCKING (the ceremony) --------------------------------- */
+.bv-unlock-anim {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  background: #000;
+}
+.bv-unlock-bloom {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0%, rgba(255, 255, 255, 0.6) 30%, transparent 70%);
+  animation: bloom 1200ms var(--ease) forwards;
+}
+@keyframes bloom {
+  0% { transform: scale(0.2); opacity: 0; }
+  20% { opacity: 1; }
+  100% { transform: scale(90); opacity: 0; }
+}
+.bv-unlock-rings i {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 80px;
+  height: 80px;
+  margin: -40px 0 0 -40px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  animation: ripple 1400ms var(--ease) forwards;
+}
+.bv-unlock-rings i:nth-child(2) { animation-delay: 180ms; }
+.bv-unlock-rings i:nth-child(3) { animation-delay: 360ms; }
+@keyframes ripple {
+  0% { opacity: 0.9; transform: scale(0.3); }
+  100% { opacity: 0; transform: scale(16); }
+}
+.bv-unlock-glyph {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  animation: unlockGlyph 1600ms var(--ease) both;
+}
+@keyframes unlockGlyph {
+  0% { opacity: 0; transform: scale(0.6); filter: blur(10px); }
+  40% { opacity: 1; transform: scale(1); filter: none; }
+  100% { opacity: 0; transform: scale(1.3); filter: blur(6px); }
+}
+.bv-unlock-glyph svg { width: 84px; height: 84px; filter: drop-shadow(0 0 30px #fff); }
+.bv-unlock-word {
+  font-size: 13px;
+  letter-spacing: 0.5em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.85);
+}
+.bv-unlock-sweep {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.16), transparent);
+  transform: translateX(-100%);
+  animation: unlockSweep 1200ms var(--ease) forwards;
+}
+@keyframes unlockSweep { to { transform: translateX(100%); } }
+
+/* ---- Pattern grid (on lock screen) ---------------------------------- */
+.bv-pattern {
+  position: relative;
+  width: 264px;
+  height: 264px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 34px;
+  padding: 8px;
+}
+.bv-pattern-node {
+  position: relative;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: all 180ms var(--ease);
+}
+.bv-pattern-node:hover { border-color: rgba(255, 255, 255, 0.5); }
+.bv-pattern-node.on {
+  background: #fff;
+  border-color: #fff;
+  box-shadow: 0 0 22px 2px rgba(255, 255, 255, 0.65);
+}
+.bv-pattern-node::after {
+  content: "";
+  position: absolute;
+  inset: 38%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+}
+.bv-pattern-node.on::after { background: #000; }
+.bv-pattern-svg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+.bv-pattern-svg line {
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 3;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.8));
+}

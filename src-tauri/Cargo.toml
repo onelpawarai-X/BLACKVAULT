@@ -1,0 +1,105 @@
+[package]
+name = "blackvault"
+version = "1.0.0"
+description = "BLACKVAULT — Your Voice. Your Control. Your Security."
+authors = ["BLACKVAULT"]
+edition = "2021"
+rust-version = "1.77"
+license = "MIT"
+
+[lib]
+name = "blackvault_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "blackvault"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png", "devtools"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-os = "2"
+tauri-plugin-process = "2"
+tauri-plugin-store = "2"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+
+# Storage
+rusqlite = { version = "0.32", features = ["bundled", "chrono"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Crypto / secrets
+sha2 = "0.10"
+hmac = "0.12"
+pbkdf2 = { version = "0.12", default-features = false, features = ["simple", "std"] }
+subtle = "2"
+rand = "0.8"
+zeroize = "1"
+base64 = "0.22"
+
+# Audio + DSP (offline recognition)
+cpal = "0.15"
+rustfft = "6"
+num-complex = "0.4"
+
+# Threading
+parking_lot = "0.12"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_System_Threading",
+  "Win32_System_JobObjects",
+  "Win32_System_LibraryLoader",
+  "Win32_System_SystemInformation",
+  "Win32_System_Registry",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_Security_Credentials",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Com",
+  "Win32_System_Ole",
+  "Win32_System_ProcessStatus",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Input",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Shell",
+  "Win32_Graphics_Gdi",
+  "Win32_Graphics_Dwm",
+  "Win32_Media_Audio",
+  "Win32_Media",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Variant",
+  # WinRT namespaces keep their unprefixed names in this crate.
+  "Foundation",
+  "Foundation_Collections",
+  "Security_Credentials_UI",
+  "Win32_Devices_Display",
+] }
+
+[features]
+default = []
+# Open-vocabulary recognition using a Vosk model dropped into the app data dir.
+# Off by default: the built-in speaker-dependent engine needs no model download.
+vosk = []
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

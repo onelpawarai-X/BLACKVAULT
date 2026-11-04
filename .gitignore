@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+src-tauri/target/
+
+# Build output
+dist/
+src-tauri/gen/
+
+# Environment / secrets — never commit
+.env
+.env.*
+*.pem
+*.key
+*.jks
+*.keystore
+!src-tauri/icons/*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Local runtime data (database, logs, recordings)
+blackvault-data/
+*.db
+*.db-wal
+*.db-shm
+logs/
+
+# Test artifacts
+coverage/
+.agent_tmp/
