@@ -218,7 +218,7 @@ fn on_text(state: &Arc<AppState>, text: &str) {
         // check is the same PBKDF2 comparison, and the second factor still
         // stands between the words and the desktop.
         if heard == "unlock this pc" || heard == wake {
-            let status = crate::commands::begin_unlock(state);
+            let status = crate::commands::begin_unlock_now(state);
             state.emit(CoreEvent::Status(status));
             return;
         }

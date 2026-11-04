@@ -424,6 +424,12 @@ pub fn unlock_factors(state: St<'_>) -> Vec<String> {
 
 #[tauri::command]
 pub fn begin_unlock(state: St<'_>) -> EngineStatus {
+    begin_unlock_now(&state)
+}
+
+/// The unlock prompt itself. Split out of the command so the supervisor thread
+/// can raise it from a recognised utterance without going through Tauri.
+pub fn begin_unlock_now(state: &Arc<AppState>) -> EngineStatus {
     state.set_mode(SecurityMode::Unlocking);
     state.partial_auth.store(false, Ordering::Relaxed);
     let settings = state.settings();
@@ -433,7 +439,7 @@ pub fn begin_unlock(state: St<'_>) -> EngineStatus {
         reason: None,
     });
     state.emit(CoreEvent::Challenge { factors });
-    build_status(&state)
+    build_status(state)
 }
 
 fn after_factor(state: &Arc<AppState>, result: AuthResult, method: &str) -> AuthResult {
