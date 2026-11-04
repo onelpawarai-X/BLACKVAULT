@@ -151,6 +151,7 @@ export type SecurityEventKind =
 export interface Settings {
   theme: "black";
   setupComplete: boolean;
+  ownerName: string;
   accentGlow: number; // 0..1 intensity
   startWithWindows: boolean;
   startMinimized: boolean;

@@ -14,6 +14,10 @@ pub struct Settings {
     pub theme: String,
     #[serde(default)]
     pub setup_complete: bool,
+    /// The name the user is addressed by. Purely cosmetic — it labels the voice
+    /// profile and greets them on the lock screen. Never leaves the machine.
+    #[serde(default)]
+    pub owner_name: String,
     pub accent_glow: f32,
     pub start_with_windows: bool,
     pub start_minimized: bool,
@@ -49,6 +53,7 @@ impl Default for Settings {
         Settings {
             theme: "black".into(),
             setup_complete: false,
+            owner_name: String::new(),
             accent_glow: 0.55,
             start_with_windows: true,
             start_minimized: false,
@@ -115,6 +120,63 @@ impl Settings {
             _ => self.unlock_animation = "bloom".into(),
         }
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_leave_the_wake_phrase_optional() {
+        // Requiring the wake phrase before every command is the usual reason a
+        // first-time user concludes voice control is broken.
+        let d = Settings::default();
+        assert!(!d.require_wake_for_commands);
+        assert!(d.wake_phrase_enabled);
+    }
+
+    #[test]
+    fn defaults_never_hide_the_cursor() {
+        // The overlay carries the PIN field and the pattern grid.
+        assert!(!Settings::default().hide_cursor_when_locked);
+    }
+
+    #[test]
+    fn sanitize_pins_second_factor() {
+        let mut s = Settings::default();
+        s.second_factor = "  magic  ".into();
+        assert_eq!(s.sanitize().second_factor, "pin");
+        let mut ok = Settings::default();
+        ok.second_factor = "pattern".into();
+        assert_eq!(ok.sanitize().second_factor, "pattern");
+    }
+
+    #[test]
+    fn sanitize_restores_an_empty_wake_phrase() {
+        let mut s = Settings::default();
+        s.wake_phrase = "   ".into();
+        assert_eq!(s.sanitize().wake_phrase, "black vault");
+    }
+
+    #[test]
+    fn sanitize_keeps_privacy_off() {
+        let mut s = Settings::default();
+        s.telemetry = true;
+        s.store_audio = true;
+        let s = s.sanitize();
+        assert!(!s.telemetry);
+        assert!(!s.store_audio);
+    }
+
+    #[test]
+    fn sanitize_clamps_rate_limits() {
+        let mut s = Settings::default();
+        s.auth_rate_limit_attempts = 0;
+        s.auth_rate_limit_window_secs = 1;
+        let s = s.sanitize();
+        assert_eq!(s.auth_rate_limit_attempts, 1);
+        assert_eq!(s.auth_rate_limit_window_secs, 5);
     }
 }
 

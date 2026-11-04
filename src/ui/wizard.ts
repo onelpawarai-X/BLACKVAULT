@@ -90,10 +90,19 @@ export function createWizard(host: HTMLElement, onDone: () => void): void {
 
   // -------------------------------------------------------------- steps
   function stepIdentity(): void {
-    const name = el("input", { class: "bv-input", placeholder: "e.g. Arin", value: (draft as { ownerName?: string }).ownerName ?? "" });
+    const name = el("input", {
+      class: "bv-input",
+      placeholder: "e.g. Arin",
+      value: draft.ownerName ?? "",
+    });
+    // Persisted with the rest of the draft so the lock screen can greet the
+    // user by name instead of showing a bare "VAULT LOCKED".
+    name.addEventListener("input", () => {
+      draft.ownerName = name.value.trim();
+    });
     mount(
       body,
-      field("Secret voice name", name, "Used to address you and to label your voice profile. Never transmitted anywhere."),
+      field("Your name", name, "Shown on the lock screen and used to label your voice profile. Never transmitted anywhere."),
       nav(),
     );
   }

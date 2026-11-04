@@ -35,6 +35,9 @@ export const settingsPane: Pane = {
         row("Start minimised", "Launch straight to the tray.", s.startMinimized, (v) => save({ startMinimized: v })),
         row("Keep running when closed", "Closing the window keeps the voice engine alive in the tray.", s.minimizeToTray, (v) => save({ minimizeToTray: v })),
       ]),
+      group("Identity", [
+        textRow("Your name", s.ownerName, (v) => save({ ownerName: v })),
+      ]),
       group("Voice engine", [
         row("Always-on listening", "Keep the microphone armed while unlocked.", s.alwaysOnVoice, (v) => save({ alwaysOnVoice: v })),
         row("Wake phrase", "Require the wake phrase before commands are accepted.", s.wakePhraseEnabled, (v) => save({ wakePhraseEnabled: v })),

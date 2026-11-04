@@ -11,6 +11,7 @@
 import * as bridge from "../lib/bridge";
 import { el, mount, svgIcon, clear } from "../lib/dom";
 import { ICONS } from "../lib/icons";
+import { getState } from "../lib/store";
 import type { AuthResult } from "../lib/types";
 
 export interface LockController {
@@ -147,7 +148,11 @@ export function createLockScreen(host: HTMLElement): LockController {
         "div",
         { class: "bv-lock-core enter" },
         emblem,
-        el("div", { class: "bv-lock-title" }, "VAULT LOCKED"),
+        el(
+          "div",
+          { class: "bv-lock-title" },
+          ownerName() ? `${ownerName().toUpperCase()} · LOCKED` : "VAULT LOCKED",
+        ),
         el(
           "div",
           { class: "bv-lock-sub" },
@@ -168,6 +173,11 @@ export function createLockScreen(host: HTMLElement): LockController {
     );
 
     renderChallenge(challenge);
+  }
+
+  /// The name the user set during setup, if any. Cosmetic only.
+  function ownerName(): string {
+    return (getState().settings?.ownerName ?? "").trim();
   }
 
   function renderChallenge(host2: HTMLElement): void {
