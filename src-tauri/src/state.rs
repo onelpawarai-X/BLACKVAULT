@@ -205,14 +205,37 @@ pub fn on_setup(app: &mut tauri::App) {
     // Start the background engine (voice routing + app guard + watchdog).
     crate::engine::spawn(Arc::clone(&state));
 
-    // The main window starts hidden so the splash is the first thing seen; show
-    // it now that setup is complete.
-    if let Some(win) = app.get_webview_window("main") {
-        let _ = win.show();
-        let _ = win.set_focus();
+    // The main window is created hidden. Whether it is revealed depends on the
+    // two ways a user can ask for a quiet start: the "start minimised" setting,
+    // or the `--tray` argument the autostart entry passes at sign-in. Without
+    // this the window always popped up at login, which made both the setting and
+    // the argument look like they did nothing.
+    if !starts_in_tray(&settings) {
+        if let Some(win) = app.get_webview_window("main") {
+            let _ = win.show();
+            let _ = win.set_focus();
+        }
+    } else {
+        log::info!("starting in the tray; the control centre stays hidden");
     }
 
     state.log_event("engine_start", "info", "BLACKVAULT core started", None);
+}
+
+/// Did the process start with the `--tray` argument?
+///
+/// The autostart entry passes it so a sign-in launch never pops a window.
+fn tray_requested() -> bool {
+    std::env::args().any(|a| a == "--tray")
+}
+
+/// Should the control centre stay in the tray on this launch?
+///
+/// True when the user asked to start minimised, or when `--tray` was passed.
+/// The argument wins, so a sign-in launch is always quiet even if the setting
+/// was later changed in the UI.
+fn starts_in_tray(settings: &crate::settings::Settings) -> bool {
+    tray_requested() || settings.start_minimized
 }
 
 #[cfg(test)]
