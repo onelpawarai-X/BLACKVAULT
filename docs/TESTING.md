@@ -19,6 +19,7 @@ without a Windows machine, a microphone or a screen.
 | Automation key/point parsing | pure unit tests | `src-tauri/src/platform/automation.rs` |
 | Launcher argument splitting | pure unit tests | `src-tauri/src/platform/launcher.rs` |
 | File-protection labels | unit tests | `src-tauri/src/platform/fileprot.rs` |
+| File-open detection | pure unit tests over synthetic access times | `src-tauri/src/platform/fileguard.rs` |
 | Frontend logic | vitest in jsdom | `tests/matcher.test.ts` |
 
 What is **not** covered by automated tests, and why: the Win32 calls themselves.
@@ -44,8 +45,8 @@ This is the state of the suite as built.
 ### 3.1 Rust core
 
 ```
-running 61 tests
-test result: ok. 61 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+running 107 tests
+test result: ok. 107 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ```
 
 The suite covers, among others:
@@ -89,7 +90,7 @@ Test Files  1 passed (1)
 ```
 npm run build          → vite build, 25 modules, dist/ produced
 npx tsc --noEmit       → 0 errors
-cargo test             → 61 passed, 0 failed
+cargo test             → 107 passed, 0 failed
 ```
 
 ## 4. Manual verification checklist
@@ -108,6 +109,23 @@ actually be observed.
 - [ ] Unplug the microphone: the engine reports stopped, logs a recovery, and
       resumes within a few seconds of the device returning.
 - [ ] Restart the app: the engine starts again on its own.
+
+### Protected applications and files
+
+- [ ] Protect an application in **Application Lock**. Start it from Explorer (not
+      from BLACKVAULT): a BLACKVAULT window opens over it asking for the PIN, and
+      the application closes within the grace period if the window is ignored.
+- [ ] Enter the PIN in that window: the window plays its release animation, closes,
+      and the application starts again.
+- [ ] Protect a file in **Files & Folders**, then open it from Explorer: the
+      prompt window appears with the file's name, and the file opens once the
+      password is accepted.
+- [ ] Press **Open** on a protected item in the dashboard: the same prompt window
+      appears.
+- [ ] Set *Seal strength* to `hard`: opening the item now shows Windows' own
+      "access denied" instead of the prompt. This is the documented trade-off.
+- [ ] With the control centre minimised to the tray, start a protected
+      application: the prompt window still appears.
 
 ### Lock and unlock
 

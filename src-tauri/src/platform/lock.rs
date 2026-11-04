@@ -183,6 +183,34 @@ pub fn set_task_switch_blocked(blocked: bool) {
 #[cfg(not(windows))]
 pub fn set_task_switch_blocked(_blocked: bool) {}
 
+/// The image path of the process that owns the foreground window.
+///
+/// Used only to tell the user which copy of an application is asking to run,
+/// and only when Windows will report it. Returns `None` for an elevated
+/// foreground window, which the user's own token may not query.
+#[cfg(windows)]
+pub fn focused_process_path() -> Option<String> {
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.0.is_null() {
+            return None;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == 0 {
+            return None;
+        }
+        crate::platform::applock::process_path(pid)
+    }
+}
+
+#[cfg(not(windows))]
+pub fn focused_process_path() -> Option<String> {
+    None
+}
+
 /// Install a system-wide emergency hotkey (`Ctrl+Alt+B`) that releases the
 /// overlay. This is the last line of defence against a lock-out: even if the
 /// pointer, the keyboard hook or the voice engine all misbehave, the user can

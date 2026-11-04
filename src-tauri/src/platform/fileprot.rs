@@ -36,7 +36,7 @@ impl AppliedProtection {
     }
 }
 
-/// The rights the seal takes away.
+/// The rights a *hard* seal takes away: read, write, execute and delete.
 ///
 /// Deliberately *not* `GA` (generic all). Denying `GA` would also deny
 /// `WRITE_DAC`, and the owner's implicit right to rewrite the DACL is the only
@@ -52,6 +52,21 @@ impl AppliedProtection {
 ///   0x00010000 DELETE
 pub const DENY_RIGHTS: u32 = 0x0001_0067;
 
+/// The rights a *prompt* seal takes away: write, append and delete only.
+///
+/// Read and execute are deliberately left alone. A hard seal makes the file
+/// unreachable to everyone, which is the strongest thing Windows offers — but it
+/// also means the only thing the user ever sees is Windows' own "access is
+/// denied", and there is no moment at which BLACKVAULT could ask for a
+/// password. Leaving read and execute in place keeps the item reachable, so the
+/// guard can notice the open and raise the authentication prompt there and then.
+///
+///   0x00000002 FILE_WRITE_DATA / ADD_FILE
+///   0x00000004 FILE_APPEND_DATA / ADD_SUBDIRECTORY
+///   0x00000040 FILE_DELETE_CHILD
+///   0x00010000 DELETE
+pub const SOFT_DENY_RIGHTS: u32 = 0x0001_0046;
+
 /// The DACL that seals an item.
 ///
 /// The deny has to name `AU` (Authenticated Users) as well as the user's own
@@ -61,16 +76,36 @@ pub const DENY_RIGHTS: u32 = 0x0001_0067;
 /// present in every interactive token, administrator included, so denying it
 /// closes the hole while `SY`/`BA` stay allowed for recovery.
 pub fn seal_sddl(sid: &str, directory: bool) -> String {
+    seal_sddl_with(sid, directory, DENY_RIGHTS)
+}
+
+/// The same seal with the rights chosen by the caller, so the "prompt on open"
+/// mode can deny only write and delete.
+pub fn seal_sddl_with(sid: &str, directory: bool, rights: u32) -> String {
     if directory {
         // `OICI` propagates the deny to everything already inside, so a folder
         // cannot be sealed while its contents stay readable.
         format!(
-            "D:(D;OICI;0x{DENY_RIGHTS:X};;;{sid})(D;OICI;0x{DENY_RIGHTS:X};;;AU)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
+            "D:(D;OICI;0x{rights:X};;;{sid})(D;OICI;0x{rights:X};;;AU)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
         )
     } else {
         format!(
-            "D:(D;;0x{DENY_RIGHTS:X};;;{sid})(D;;0x{DENY_RIGHTS:X};;;AU)(A;;FA;;;SY)(A;;FA;;;BA)"
+            "D:(D;;0x{rights:X};;;{sid})(D;;0x{rights:X};;;AU)(A;;FA;;;SY)(A;;FA;;;BA)"
         )
+    }
+}
+
+/// True when the mode seals the item so hard that it cannot be opened at all.
+pub fn is_hard(mode: &str) -> bool {
+    mode == "hard"
+}
+
+/// The rights a mode denies.
+pub fn rights_for(mode: &str) -> u32 {
+    if is_hard(mode) {
+        DENY_RIGHTS
+    } else {
+        SOFT_DENY_RIGHTS
     }
 }
 
@@ -172,13 +207,16 @@ mod imp {
 
     /// Seal: encrypt first (that needs write-attributes, which the deny removes),
     /// then take the data away.
-    pub fn seal(path: &Path) -> BvResult<AppliedProtection> {
+    pub fn seal(path: &Path, mode: &str) -> BvResult<AppliedProtection> {
         if !path.exists() {
             return Err(BvError::msg("path does not exist"));
         }
+        // Encryption is EFS, which is transparent to the logged-in user, so it
+        // protects the file at rest (offline, or on another machine) without
+        // standing in the way of the prompt.
         let encrypted = encrypt(path).unwrap_or(false);
         let sid = current_user_sid_string()?;
-        let acl = apply_sddl(path, &seal_sddl(&sid, false)).is_ok();
+        let acl = apply_sddl(path, &seal_sddl_with(&sid, false, rights_for(mode))).is_ok();
         Ok(AppliedProtection { acl, encrypted })
     }
 
@@ -207,11 +245,37 @@ mod imp {
         let Ok(sid) = current_user_sid_string() else {
             return false;
         };
-        let rights = format!("0x{DENY_RIGHTS:X}");
+        let hard = format!("0x{DENY_RIGHTS:X}");
+        let soft = format!("0x{SOFT_DENY_RIGHTS:X}");
         match snapshot_acl(path) {
             Ok(sddl) => {
                 let up = sddl.to_uppercase();
-                up.contains(&format!("{rights};;;{}", sid.to_uppercase()))
+                let sid = sid.to_uppercase();
+                let named = |rights: &str| {
+                    up.contains(&format!("{rights};;;{sid}"))
+                        || up.contains(&format!("{rights};;;AU"))
+                };
+                named(&hard) || named(&soft)
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// True when the item carries the deny ACE for this specific mode.
+    ///
+    /// The two modes deny different rights, so a self-heal that only asked
+    /// "is it sealed" would never upgrade a soft seal to a hard one, and a mode
+    /// change in Settings would silently do nothing.
+    pub fn is_sealed_with(path: &Path, mode: &str) -> bool {
+        let Ok(sid) = current_user_sid_string() else {
+            return false;
+        };
+        let rights = format!("0x{:X}", rights_for(mode));
+        match snapshot_acl(path) {
+            Ok(sddl) => {
+                let up = sddl.to_uppercase();
+                let sid = sid.to_uppercase();
+                up.contains(&format!("{rights};;;{sid}"))
                     || up.contains(&format!("{rights};;;AU"))
             }
             Err(_) => false,
@@ -298,7 +362,7 @@ mod imp {
         out
     }
 
-    pub fn seal_tree(path: &Path) -> BvResult<AppliedProtection> {
+    pub fn seal_tree(path: &Path, mode: &str) -> BvResult<AppliedProtection> {
         let encrypted = if path.is_dir() {
             encrypt_tree(path).unwrap_or(false)
         } else {
@@ -307,7 +371,7 @@ mod imp {
         let sid = current_user_sid_string()?;
         // One inheritable deny on the root is enough: Windows evaluates the
         // inherited ACEs on every child, so we do not have to walk the tree.
-        let acl = apply_sddl(path, &seal_sddl(&sid, true)).is_ok();
+        let acl = apply_sddl(path, &seal_sddl_with(&sid, true, rights_for(mode))).is_ok();
         Ok(AppliedProtection { acl, encrypted })
     }
 
@@ -344,16 +408,19 @@ mod imp {
     pub fn snapshot_acl(_path: &Path) -> BvResult<String> {
         Ok(String::new())
     }
-    pub fn seal(_path: &Path) -> BvResult<AppliedProtection> {
+    pub fn seal(_path: &Path, _mode: &str) -> BvResult<AppliedProtection> {
         Err(BvError::Unsupported("NTFS protection".into()))
     }
-    pub fn seal_tree(_path: &Path) -> BvResult<AppliedProtection> {
+    pub fn seal_tree(_path: &Path, _mode: &str) -> BvResult<AppliedProtection> {
         Err(BvError::Unsupported("NTFS protection".into()))
     }
     pub fn open(_path: &Path, _saved: Option<&str>) -> BvResult<AppliedProtection> {
         Err(BvError::Unsupported("NTFS protection".into()))
     }
     pub fn is_sealed(_path: &Path) -> bool {
+        false
+    }
+    pub fn is_sealed_with(_path: &Path, _mode: &str) -> bool {
         false
     }
     pub fn is_encrypted(_path: &Path) -> bool {
@@ -374,11 +441,11 @@ mod imp {
 pub use imp::*;
 
 /// Seal an item, choosing the directory path when needed.
-pub fn seal_item(path: &std::path::Path) -> BvResult<AppliedProtection> {
+pub fn seal_item(path: &std::path::Path, mode: &str) -> BvResult<AppliedProtection> {
     if is_dir(path) {
-        seal_tree(path)
+        seal_tree(path, mode)
     } else {
-        seal(path)
+        seal(path, mode)
     }
 }
 

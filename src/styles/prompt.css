@@ -1,0 +1,266 @@
+/* =========================================================================
+   BLACKVAULT — Authentication prompt window
+   The card that asks for a password when a protected application, file or
+   folder is opened. Same language as the control centre: pure black, glass,
+   silver light.
+   ========================================================================= */
+
+body.bv-prompt-body {
+  margin: 0;
+  background: #000;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.bv-prompt-body #app {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(120% 90% at 50% -20%, rgba(255, 255, 255, 0.07), transparent 60%),
+    #000;
+}
+
+.bv-prompt {
+  width: 100%;
+  max-width: 420px;
+  padding: 26px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018));
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
+  box-shadow:
+    0 30px 80px -40px rgba(0, 0, 0, 0.9),
+    0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+  backdrop-filter: blur(22px);
+}
+
+.bv-prompt.enter {
+  animation: promptEnter 520ms var(--ease) both;
+}
+@keyframes promptEnter {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); filter: blur(6px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+.bv-prompt.shake {
+  animation: promptShake 460ms var(--ease-in-out);
+}
+@keyframes promptShake {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(4px); }
+  30%, 50%, 70% { transform: translateX(-7px); }
+  40%, 60% { transform: translateX(7px); }
+}
+
+/* ---- header ---- */
+.bv-prompt-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.bv-prompt-emblem {
+  width: 46px;
+  height: 46px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  border: 1px solid var(--glass-border);
+  background: radial-gradient(60% 60% at 50% 40%, rgba(255, 255, 255, 0.12), transparent 70%);
+  box-shadow: 0 0 30px -12px var(--glow);
+}
+.bv-prompt-emblem svg {
+  width: 24px;
+  height: 24px;
+  stroke: #fff;
+}
+
+.bv-prompt-title {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.bv-prompt-name {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  margin-top: 3px;
+  word-break: break-word;
+}
+
+/* ---- body ---- */
+.bv-prompt-detail {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-dim);
+  word-break: break-all;
+}
+.bv-prompt-origin {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-ghost);
+  word-break: break-all;
+}
+
+.bv-prompt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bv-prompt-label {
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.bv-prompt .bv-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.bv-prompt-note {
+  min-height: 16px;
+  font-size: 12px;
+  color: var(--danger);
+  letter-spacing: 0.02em;
+}
+
+.bv-prompt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+.bv-prompt-actions .bv-btn.primary {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+
+.bv-prompt-foot {
+  margin-top: 2px;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--ink-ghost);
+  text-align: center;
+}
+
+/* ---- waiting state ---- */
+.bv-prompt.wait {
+  align-items: center;
+  gap: 18px;
+  padding: 44px 24px;
+}
+.bv-prompt-wait-text {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.bv-prompt-spin {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
+  border-top-color: rgba(255, 255, 255, 0.75);
+  animation: promptSpin 900ms linear infinite;
+}
+@keyframes promptSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ---- the release ceremony ---- */
+.bv-prompt.granted {
+  align-items: center;
+  text-align: center;
+  gap: 18px;
+  padding: 46px 24px;
+  animation: grantedIn 600ms var(--ease) both;
+}
+@keyframes grantedIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+.bv-grant-anim {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  display: grid;
+  place-items: center;
+}
+.bv-grant-glyph {
+  position: relative;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  animation: grantGlyph 900ms var(--ease) both;
+}
+.bv-grant-glyph svg {
+  width: 56px;
+  height: 56px;
+  stroke: #fff;
+  filter: drop-shadow(0 0 16px rgba(255, 255, 255, 0.65));
+}
+@keyframes grantGlyph {
+  0% { opacity: 0; transform: scale(0.6); }
+  60% { opacity: 1; transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.bv-prompt-ring i {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  animation: grantRing 1400ms var(--ease) infinite;
+}
+.bv-prompt-ring i:nth-child(2) { animation-delay: 260ms; }
+.bv-prompt-ring i:nth-child(3) { animation-delay: 520ms; }
+@keyframes grantRing {
+  from { transform: scale(0.35); opacity: 0.85; }
+  to { transform: scale(1.25); opacity: 0; }
+}
+
+.bv-prompt-burst i {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 14px;
+  margin: -7px 0 0 -1px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #fff, rgba(255, 255, 255, 0));
+  transform: rotate(var(--a)) translateY(0);
+  opacity: 0;
+  animation: grantShard 900ms var(--ease) both;
+  animation-delay: var(--t);
+}
+@keyframes grantShard {
+  0% { opacity: 0; transform: rotate(var(--a)) translateY(-6px) scaleY(0.4); }
+  35% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--a)) translateY(calc(-1 * var(--d))) scaleY(1.1); }
+}
+
+.bv-grant-word {
+  font-size: 12px;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow: 0 0 22px rgba(255, 255, 255, 0.5);
+}
+.bv-grant-name {
+  font-size: 13px;
+  color: var(--ink-dim);
+  max-width: 100%;
+  word-break: break-word;
+}

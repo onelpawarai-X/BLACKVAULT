@@ -7,9 +7,9 @@
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::auth;
@@ -17,7 +17,7 @@ use crate::error::{BvError, BvResult};
 use crate::models::*;
 use crate::platform;
 use crate::settings::Settings;
-use crate::state::{AppState, CoreEvent};
+use crate::state::{AppState, CoreEvent, EVENT_TOPIC, PendingPrompt, PromptTarget};
 use crate::voice::matcher::{self, Template};
 
 type St<'a> = State<'a, Arc<AppState>>;
@@ -826,7 +826,7 @@ pub fn protect_path(state: St<'_>, path: String, encryption: String) -> BvResult
         return Err(BvError::msg("that path does not exist"));
     }
     let snapshot = platform::fileprot::snapshot_acl(p).unwrap_or_default();
-    let applied = platform::fileprot::seal_item(p)?;
+    let applied = platform::fileprot::seal_item(p, &state.settings().file_lock_mode)?;
     if !applied.acl && !applied.encrypted {
         return Err(BvError::msg(
             "protection could not be applied. Run BLACKVAULT as an administrator, or choose a location you own.",
@@ -882,29 +882,23 @@ pub fn unprotect_path(state: St<'_>, id: i64) -> BvResult<()> {
 /// it as guards unlocking a protected application. The item re-seals on the next
 /// lock, and the guard notices within a few seconds if the permission is put
 /// back by hand.
+/// Ask for the password before a protected item is released.
+///
+/// This used to demand Windows Hello and refuse outright when the machine had
+/// no Hello — which meant a protected file could not be released at all on such
+/// a machine. It now raises the same prompt card the guard raises, so the PIN or
+/// the secret passphrase works and Hello is an extra option rather than a
+/// requirement.
 #[tauri::command]
 pub fn reveal_path(state: St<'_>, id: i64) -> BvResult<()> {
-    let settings = state.settings();
-    let r = auth::verify_hello(&state.db, &settings)
-        .unwrap_or_else(|_| AuthResult::fail("hello", "Windows Hello unavailable", None));
-    if !r.ok && settings.require_second_factor {
-        return Err(BvError::msg(
-            "Authentication is required before a protected file can be released.",
-        ));
-    }
     let items = state.db.list_protected_items()?;
     let item = items.into_iter().find(|i| i.id == id).ok_or(BvError::NotFound)?;
-    let snapshot = state.db.acl_snapshot(id)?;
-    let p = std::path::Path::new(&item.path);
-    if p.exists() {
-        platform::fileprot::open(p, snapshot.as_deref())?;
-    }
-    state.db.set_item_protected(id, false)?;
-    state.log_event(
-        "file_revealed",
-        "warn",
-        &format!("Released {}", item.display_name),
-        Some("will re-seal on the next lock"),
+    raise_prompt(
+        &state,
+        PromptTarget::Path {
+            item_id: id,
+            path: item.path.clone(),
+        },
     );
     Ok(())
 }
@@ -918,7 +912,7 @@ pub fn reseal_path(state: St<'_>, id: i64) -> BvResult<()> {
     if !p.exists() {
         return Err(BvError::msg("the protected path no longer exists"));
     }
-    let applied = platform::fileprot::seal_item(p)?;
+    let applied = platform::fileprot::seal_item(p, &state.settings().file_lock_mode)?;
     if !applied.acl && !applied.encrypted {
         return Err(BvError::msg("could not re-seal the item"));
     }
@@ -932,12 +926,316 @@ fn reseal_items(state: &Arc<AppState>) {
         for item in items {
             let p = std::path::Path::new(&item.path);
             if p.exists() {
-                if let Err(e) = platform::fileprot::seal_item(p) {
+                if let Err(e) = platform::fileprot::seal_item(p, &state.settings().file_lock_mode) {
                     log::warn!("could not re-seal {}: {e}", item.path);
                 }
             }
             let _ = state.db.set_item_protected(item.id, true);
         }
+    }
+}
+
+// ------------------------------------------------------- authentication prompt
+
+/// How long a prompt token stays usable. Long enough to type a password or
+/// speak a phrase; short enough that an abandoned prompt cannot be answered
+/// hours later.
+const PROMPT_TTL: Duration = Duration::from_secs(180);
+
+/// Ask for authentication in a window of its own.
+///
+/// The prompt has to be its own window. Raising it inside the control centre
+/// meant the card was drawn into a window that is hidden in the tray whenever
+/// the user is doing real work, so opening a protected file or application
+/// produced no password request at all — the complaint behind "the lock does
+/// not ask for a password".
+pub fn raise_prompt(state: &Arc<AppState>, target: PromptTarget) -> String {
+    let token = crate::crypto::random_token();
+    *state.pending_prompt.lock() = Some(PendingPrompt {
+        token: token.clone(),
+        target: target.clone(),
+        raised_at: Instant::now(),
+    });
+    let app = state.app.lock().clone();
+    let Some(app) = app else {
+        return token;
+    };
+    let label = "authprompt";
+    if let Some(w) = app.get_webview_window(label) {
+        let _ = w.close();
+    }
+    let origin = crate::platform::lock::focused_process_path();
+    let event = match &target {
+        PromptTarget::App { rule_id, process } => CoreEvent::AppChallenge {
+            rule_id: *rule_id,
+            process_name: process.clone(),
+            display_name: display_name_for(state, *rule_id, process),
+            grace_secs: state.settings().app_lock_grace_secs,
+            origin,
+            token: token.clone(),
+        },
+        PromptTarget::Path { item_id, path } => {
+            let (display_name, kind) = item_label(state, *item_id, path);
+            CoreEvent::PathChallenge {
+                token: token.clone(),
+                item_id: *item_id,
+                path: path.clone(),
+                display_name,
+                kind,
+                origin,
+            }
+        }
+    };
+    let built = tauri::WebviewWindowBuilder::new(
+        &app,
+        label,
+        tauri::WebviewUrl::App("index.html?prompt=1".into()),
+    )
+    .title("BLACKVAULT — authentication required")
+    .inner_size(460.0, 540.0)
+    .resizable(false)
+    .always_on_top(true)
+    .center()
+    .decorations(true)
+    .theme(Some(tauri::Theme::Dark))
+    .background_color(tauri::window::Color(0, 0, 0, 255))
+    .build();
+    match built {
+        Ok(window) => {
+            let _ = window.set_focus();
+            // The window is created empty and boots its own page. Emit now (in
+            // case the page is already listening) and again shortly after, so
+            // the card is never rendered before the listener exists.
+            let _ = window.emit(EVENT_TOPIC, &event);
+            let w = window.clone();
+            let event2 = event.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(500));
+                let _ = w.emit(EVENT_TOPIC, &event2);
+            });
+        }
+        Err(e) => {
+            log::warn!("could not open the authentication prompt: {e}");
+            state.emit(event);
+        }
+    }
+    token
+}
+
+/// Close the prompt window and forget its token. `None` closes whatever is open.
+pub fn close_prompt(state: &Arc<AppState>, token: Option<&str>) {
+    let mut guard = state.pending_prompt.lock();
+    let matches = match (guard.as_ref(), token) {
+        (Some(p), Some(t)) => p.token == t,
+        (Some(_), None) => true,
+        (None, _) => false,
+    };
+    if !matches {
+        return;
+    }
+    let closed = guard.take();
+    drop(guard);
+    if let Some(app) = state.app.lock().clone() {
+        if let Some(w) = app.get_webview_window("authprompt") {
+            let _ = w.close();
+        }
+    }
+    if let Some(p) = closed {
+        state.emit(CoreEvent::PromptClosed { token: p.token });
+    }
+}
+
+/// Close the prompt window if it is asking about this application. Called when
+/// the application is released by any route, so the window never lingers.
+pub fn close_prompt_for_app(state: &Arc<AppState>, rule_id: i64) {
+    let open = {
+        let guard = state.pending_prompt.lock();
+        matches!(
+            guard.as_ref().map(|p| &p.target),
+            Some(PromptTarget::App { rule_id: id, .. }) if *id == rule_id
+        )
+    };
+    if open {
+        close_prompt(state, None);
+    }
+}
+
+fn display_name_for(state: &Arc<AppState>, rule_id: i64, process: &str) -> String {
+    state
+        .db
+        .list_protected_apps()
+        .ok()
+        .and_then(|rules| rules.into_iter().find(|r| r.id == rule_id))
+        .map(|r| r.display_name)
+        .unwrap_or_else(|| process.to_string())
+}
+
+fn item_label(state: &Arc<AppState>, item_id: i64, path: &str) -> (String, String) {
+    state
+        .db
+        .list_protected_items()
+        .ok()
+        .and_then(|items| items.into_iter().find(|i| i.id == item_id))
+        .map(|i| (i.display_name, i.kind))
+        .unwrap_or_else(|| (path.to_string(), "file".into()))
+}
+
+/// The live, unexpired prompt for this token, if there is one.
+fn live_prompt(state: &Arc<AppState>, token: &str) -> Option<PendingPrompt> {
+    let guard = state.pending_prompt.lock();
+    let p = guard.as_ref()?;
+    if p.token != token || p.raised_at.elapsed() > PROMPT_TTL {
+        return None;
+    }
+    Some(p.clone())
+}
+
+/// Verify a factor on behalf of a prompt, without the unlock state machine.
+///
+/// `after_factor` is deliberately *not* used here: it drives the desktop unlock
+/// ceremony and the partial-auth flag, and a prompt for one file or one
+/// application must never touch either.
+fn verify_for_prompt(state: &Arc<AppState>, pin: Option<&str>, phrase: Option<&str>) -> AuthResult {
+    let settings = state.settings();
+    if let Some(p) = pin.map(str::trim).filter(|p| !p.is_empty()) {
+        if let Ok(r) = auth::verify_pin(&state.db, &settings, p) {
+            if r.ok {
+                return r;
+            }
+        }
+    }
+    if let Some(p) = phrase.map(str::trim).filter(|p| !p.is_empty()) {
+        if let Ok(r) = auth::verify_passphrase(&state.db, &settings, p) {
+            if r.ok {
+                return r;
+            }
+        }
+    }
+    // Windows Hello, when the machine has it, is offered on top.
+    if let Ok(r) = auth::verify_hello(&state.db, &settings) {
+        if r.ok {
+            return r;
+        }
+    }
+    AuthResult::fail("pin", "That password was not accepted.", Some(0))
+}
+
+/// Answer the open prompt. `pin` and `phrase` are both optional so the user can
+/// type whichever factor they configured.
+#[tauri::command]
+pub fn answer_prompt(
+    state: St<'_>,
+    token: String,
+    pin: Option<String>,
+    phrase: Option<String>,
+) -> BvResult<AuthResult> {
+    let Some(prompt) = live_prompt(&state, &token) else {
+        return Ok(AuthResult::fail(
+            "prompt",
+            "This prompt has expired. Open the item again.",
+            None,
+        ));
+    };
+    let result = verify_for_prompt(&state, pin.as_deref(), phrase.as_deref());
+    if !result.ok {
+        state.log_event("prompt_denied", "warn", "Authentication refused at a prompt", None);
+        return Ok(result);
+    }
+    // A correct factor releases exactly what this prompt was raised for, and
+    // nothing else.
+    match prompt.target.clone() {
+        PromptTarget::App { rule_id, process } => {
+            let _ = state.db.set_app_locked(rule_id, false);
+            let name = platform::applock::normalise_name(&process);
+            state
+                .authorizations
+                .lock()
+                .grant(&name, Duration::from_secs(300));
+            state.pending_blocks.lock().remove(&name);
+            // The unauthorised copy was terminated, so put the application back
+            // the way the user asked for it.
+            if !platform::applock::is_running(&name) {
+                if let Some(rule) = state
+                    .db
+                    .list_protected_apps()
+                    .ok()
+                    .and_then(|rules| rules.into_iter().find(|r| r.id == rule_id))
+                {
+                    let exe = rule.exe_path.clone();
+                    let spawned = platform::launcher::launch(&exe, None, None);
+                    if let Err(e) = spawned {
+                        log::warn!("could not relaunch {exe}: {e}");
+                    }
+                }
+            }
+            state.log_event(
+                "app_authorized",
+                "info",
+                "Protected application released at its prompt",
+                Some(&process),
+            );
+        }
+        PromptTarget::Path { item_id, path } => {
+            let snapshot = state.db.acl_snapshot(item_id).ok().flatten();
+            let p = std::path::Path::new(&path);
+            if p.exists() {
+                if let Err(e) = platform::fileprot::open(p, snapshot.as_deref()) {
+                    log::warn!("could not release {path}: {e}");
+                }
+            }
+            let _ = state.db.set_item_protected(item_id, false);
+            state.log_event(
+                "file_revealed",
+                "warn",
+                "Protected item released at its prompt",
+                Some("re-seals on the next lock"),
+            );
+        }
+    }
+    close_prompt(&state, Some(&token));
+    state.emit(CoreEvent::Status(build_status(&state)));
+    Ok(result)
+}
+
+/// Abandon the open prompt. The protected item stays sealed.
+#[tauri::command]
+pub fn dismiss_prompt(state: St<'_>, token: String) -> BvResult<()> {
+    close_prompt(&state, Some(&token));
+    Ok(())
+}
+
+/// Hand a protected item to its own application.
+///
+/// The open that raised the prompt cannot be resumed, so once the password is
+/// accepted the item is opened the way the user meant it to be — which is also
+/// the visible confirmation that the release worked.
+#[tauri::command]
+pub fn open_path(state: St<'_>, id: i64) -> BvResult<()> {
+    let items = state.db.list_protected_items()?;
+    let item = items.into_iter().find(|i| i.id == id).ok_or(BvError::NotFound)?;
+    let p = std::path::Path::new(&item.path);
+    if !p.exists() {
+        return Err(BvError::msg("the protected path no longer exists"));
+    }
+    platform::launcher::open_with_default(p)
+}
+
+/// Open the item that raised a prompt, once it has been released.
+#[tauri::command]
+pub fn open_prompt_path(state: St<'_>, token: String) -> BvResult<()> {
+    let target = live_prompt(&state, &token).map(|p| p.target);
+    match target {
+        Some(PromptTarget::Path { item_id, .. }) => {
+            let items = state.db.list_protected_items()?;
+            if let Some(item) = items.into_iter().find(|i| i.id == item_id) {
+                let p = std::path::Path::new(&item.path);
+                if p.exists() {
+                    platform::launcher::open_with_default(p)?;
+                }
+            }
+            Ok(())
+        }
+        _ => Err(BvError::msg("this prompt is not about a file or folder")),
     }
 }
 

@@ -77,6 +77,52 @@ export const settingsPane: Pane = {
         ),
         sttTestRow(ctx),
       ]),
+      group("Application guard", [
+        row(
+          "Stop protected applications",
+          "Watch for a protected application starting and require the password before it may run.",
+          s.appGuardEnabled,
+          (v) => save({ appGuardEnabled: v }),
+        ),
+        numberRow(
+          "Grace period (seconds)",
+          s.appLockGraceSecs,
+          (v) => save({ appLockGraceSecs: Math.min(300, Math.max(5, v)) }),
+        ),
+        noteRow(
+          "How it works",
+          "A protected application is stopped within a second of starting, and the password card opens on top of whatever you are doing. The same card opens when a protected file or folder is opened.",
+        ),
+      ]),
+      group("File & folder guard", [
+        row(
+          "Ask when a protected item is opened",
+          "Raise the password card the moment a protected file or folder is opened.",
+          s.fileGuardEnabled,
+          (v) => save({ fileGuardEnabled: v }),
+        ),
+        selectRow(
+          "Seal strength",
+          s.fileLockMode,
+          [
+            ["prompt", "Prompt on open (recommended)"],
+            ["hard", "Hard deny — unreadable, no prompt"],
+          ],
+          (v) => save({ fileLockMode: v as Settings["fileLockMode"] }),
+        ),
+        noteRow(
+          "What sealing does",
+          "A sealed item keeps its name and place. In prompt mode the write and delete rights are denied, so the item opens and the password card appears; the content stays encrypted with EFS. In hard mode reading is denied too, which is stronger but leaves you with Windows' own \"access denied\" and no card.",
+        ),
+      ]),
+      group("Offline recognition", [
+        row(
+          "Use the Windows offline recogniser",
+          "Off by default. It is only needed when the endpoint above cannot be reached; starting it costs a few seconds on some machines.",
+          s.offlineRecognition,
+          (v) => save({ offlineRecognition: v }),
+        ),
+      ]),
       group("Lock screen", [
         selectRow("Lock animation", s.lockAnimation, [["iris", "Iris collapse"], ["shutter", "Shutter"], ["dissolve", "Dissolve"]], (v) => save({ lockAnimation: v as Settings["lockAnimation"] })),
         selectRow("Unlock animation", s.unlockAnimation, [["bloom", "Light bloom"], ["rings", "Ripple rings"], ["vortex", "Vortex"]], (v) => save({ unlockAnimation: v as Settings["unlockAnimation"] })),

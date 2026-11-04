@@ -25,6 +25,20 @@ use crate::voice::VoiceEngine;
 /// The event topic every core push travels on. Mirrors `EVENTS.core` in the UI.
 pub const EVENT_TOPIC: &str = "blackvault://event";
 
+/// What an open authentication prompt is protecting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PromptTarget {
+    App { rule_id: i64, process: String },
+    Path { item_id: i64, path: String },
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingPrompt {
+    pub token: String,
+    pub target: PromptTarget,
+    pub raised_at: Instant,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", content = "payload", rename_all = "camelCase")]
 pub enum CoreEvent {
@@ -46,7 +60,26 @@ pub enum CoreEvent {
         display_name: String,
         /// Seconds left before the process is terminated.
         grace_secs: u64,
+        /// Where the application was started from, when it is known. The prompt
+        /// uses it to show which copy is asking.
+        origin: Option<String>,
+        /// The single-use token this prompt may be answered with.
+        token: String,
     },
+    /// A protected file or folder was opened. The prompt is raised in its own
+    /// window so the user authenticates at the point of use, wherever the
+    /// control centre happens to be.
+    PathChallenge {
+        token: String,
+        item_id: i64,
+        path: String,
+        display_name: String,
+        kind: String,
+        /// Where the user tried to open it from, when Windows reports it.
+        origin: Option<String>,
+    },
+    /// The prompt is finished and its window should close.
+    PromptClosed { token: String },
     Unlocked { token: String },
     Settings(Box<Settings>),
     Toast { title: String, body: String, severity: String },
@@ -76,7 +109,17 @@ pub struct AppState {
     pub last_command: Mutex<Option<(String, Instant, crate::engine::Recogniser)>>,
     /// When each blocked process was first seen running unauthorised. Drives the
     /// grace period so a protected app is prompted for, not silently killed.
-    pub pending_blocks: Mutex<std::collections::HashMap<String, Instant>>,
+    /// Process name -> (first seen unauthorised, last prompt raised).
+    pub pending_blocks:
+        Mutex<std::collections::HashMap<String, (Instant, Instant)>>,
+    /// The authentication prompt that is open right now, if any. Its token is
+    /// regenerated every time a prompt is raised, so a PIN entered for one
+    /// protected application or file can never release a different one.
+    pub pending_prompt: Mutex<Option<PendingPrompt>>,
+    /// Last time each protected item was seen to change, for the prompt-on-open
+    /// guard. A baseline is recorded on the first sighting, so adding an item
+    /// never fires a prompt.
+    pub file_seen: Mutex<std::collections::HashMap<String, std::time::SystemTime>>,
     /// True once a passphrase has been verified in the current unlock attempt,
     /// so the second factor can complete the unlock.
     pub partial_auth: AtomicBool,
@@ -116,6 +159,8 @@ impl AppState {
             authorizations: Mutex::new(Authorizations::new()),
             last_command: Mutex::new(None),
             pending_blocks: Mutex::new(std::collections::HashMap::new()),
+            pending_prompt: Mutex::new(None),
+            file_seen: Mutex::new(std::collections::HashMap::new()),
             partial_auth: AtomicBool::new(false),
             unlock_token: Mutex::new(None),
             shutting_down: AtomicBool::new(false),

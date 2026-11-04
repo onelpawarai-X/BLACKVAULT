@@ -67,6 +67,7 @@ RS
 cat > "$work/src/platform/mod.rs" <<'RS'
 pub mod applock;
 pub mod automation;
+pub mod fileguard;
 pub mod fileprot;
 pub mod hello;
 pub mod launcher;
@@ -79,7 +80,7 @@ RS
 # Modules shared verbatim with the real crate.
 for f in auth.rs crypto.rs db.rs dsp.rs error.rs models.rs settings.rs \
          voice/matcher.rs voice/router.rs voice/vad.rs \
-         platform/applock.rs platform/automation.rs platform/fileprot.rs \
+         platform/applock.rs platform/automation.rs platform/fileguard.rs platform/fileprot.rs \
          platform/hello.rs platform/launcher.rs platform/lock.rs platform/service.rs \
          platform/speech.rs platform/stt.rs; do
   cp "$src/$f" "$work/src/$f"

@@ -7,6 +7,7 @@
 
 pub mod applock;
 pub mod automation;
+pub mod fileguard;
 pub mod fileprot;
 pub mod hello;
 pub mod launcher;
@@ -17,6 +18,7 @@ pub mod stt;
 
 pub use applock::*;
 pub use automation::*;
+pub use fileguard::*;
 pub use fileprot::*;
 pub use hello::*;
 pub use launcher::*;

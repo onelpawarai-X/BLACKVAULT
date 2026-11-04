@@ -152,6 +152,24 @@ export const setAutostart = (enabled: boolean) => call<boolean>("set_autostart",
 export const openLogFolder = () => call<void>("open_log_folder");
 export const factoryReset = () => call<void>("factory_reset");
 
+// ============================ Authentication prompt =====================
+
+/** Answer the open prompt. Either factor may be supplied. */
+export const answerPrompt = (token: string, pin?: string, phrase?: string) =>
+  call<AuthResult>("answer_prompt", {
+    token,
+    pin: pin ?? null,
+    phrase: phrase ?? null,
+  });
+/** Abandon the open prompt; the protected item stays sealed. */
+export const dismissPrompt = (token: string) =>
+  call<void>("dismiss_prompt", { token });
+/** Open the item that raised the prompt, after it has been released. */
+export const openPromptPath = (token: string) =>
+  call<void>("open_prompt_path", { token });
+/** Open a protected item with its own application. */
+export const openPath = (id: number) => call<void>("open_path", { id });
+
 // ============================ Event bus =================================
 
 export type CoreEvent =
@@ -166,8 +184,27 @@ export type CoreEvent =
   | { type: "challenge"; payload: { factors: string[] } }
   | {
       type: "appChallenge";
-      payload: { ruleId: number; processName: string; displayName: string; graceSecs: number };
+      payload: {
+        ruleId: number;
+        processName: string;
+        displayName: string;
+        graceSecs: number;
+        origin?: string | null;
+        token: string;
+      };
     }
+  | {
+      type: "pathChallenge";
+      payload: {
+        token: string;
+        itemId: number;
+        path: string;
+        displayName: string;
+        kind: string;
+        origin?: string | null;
+      };
+    }
+  | { type: "promptClosed"; payload: { token: string } }
   | { type: "unlocked"; payload: { token: string } }
   | { type: "settings"; payload: Settings }
   | { type: "toast"; payload: { title: string; body: string; severity: string } };

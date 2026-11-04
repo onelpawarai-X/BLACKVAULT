@@ -24,6 +24,8 @@ mod voice;
 mod commands;
 mod engine;
 
+use tauri::Manager;
+
 use state::AppState;
 
 /// Launch the application. Called by `main.rs` on desktop and by the mobile
@@ -80,6 +82,11 @@ pub fn run() {
             commands::submit_voice,
             commands::cancel_unlock,
             commands::complete_unlock,
+            // authentication prompt (its own window)
+            commands::answer_prompt,
+            commands::dismiss_prompt,
+            commands::open_path,
+            commands::open_prompt_path,
             commands::set_passphrase,
             commands::set_pin,
             commands::clear_pin,
@@ -131,9 +138,24 @@ pub fn run() {
             // Closing the control-centre window hides it to the tray instead of
             // ending the process, so the voice engine and the app guard survive.
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
-                    api.prevent_close();
-                    let _ = window.hide();
+                match window.label() {
+                    "main" => {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
+                    "authprompt" => {
+                        // Closing the prompt is a refusal, and the protected item
+                        // has to be forgotten so the guard can ask again.
+                        let app = window.app_handle();
+                        let state = app.state::<std::sync::Arc<state::AppState>>();
+                        let token = state
+                            .pending_prompt
+                            .lock()
+                            .as_ref()
+                            .map(|p| p.token.clone());
+                        commands::close_prompt(&state, token.as_deref());
+                    }
+                    _ => {}
                 }
             }
         })

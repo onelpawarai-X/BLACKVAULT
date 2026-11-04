@@ -183,6 +183,25 @@ mod imp {
         send(&[mouse_input(up, 0, 0, 0)])
     }
 
+    /// Two clicks in quick succession, the way a file manager expects.
+    pub fn double_click(x: Option<i32>, y: Option<i32>) -> BvResult<()> {
+        click(x, y, "left")?;
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        click(None, None, "left")
+    }
+
+    /// Jump to the top or the bottom of whatever is in front.
+    ///
+    /// There is no "scroll to the end" input event, so the page keys are used
+    /// the way a person would: Ctrl+Home and Ctrl+End for documents, and a long
+    /// run of wheel notches as the fallback a video or a web page responds to.
+    pub fn scroll_to(top: bool) -> BvResult<()> {
+        let combo = if top { "ctrl+home" } else { "ctrl+end" };
+        let _ = press_keys(combo);
+        let notches = if top { 60 } else { -60 };
+        scroll(0, notches * 60)
+    }
+
     pub fn scroll(dx: i32, dy: i32) -> BvResult<()> {
         // One wheel notch is 120; `dy` is given in pixels, so scale it.
         let notches = (dy / 60).clamp(-20, 20) * 120;
@@ -311,6 +330,14 @@ mod imp {
     pub fn tap_key(_v: u16) -> BvResult<()> {
         Err(BvError::Unsupported("keyboard automation".into()))
     }
+    pub fn double_click(_x: Option<i32>, _y: Option<i32>) -> BvResult<()> {
+        Err(BvError::Unsupported("mouse input".into()))
+    }
+
+    pub fn scroll_to(_top: bool) -> BvResult<()> {
+        Err(BvError::Unsupported("mouse input".into()))
+    }
+
     pub fn click(_x: Option<i32>, _y: Option<i32>, _b: &str) -> BvResult<()> {
         Err(BvError::Unsupported("mouse automation".into()))
     }
@@ -348,6 +375,20 @@ pub fn run_action(action: &str, payload: Option<&str>) -> BvResult<()> {
             let (x, y) = parse_point(payload);
             click(x, y, "left")
         }
+        "mouse_double_click" => {
+            let (x, y) = parse_point(payload);
+            double_click(x, y)
+        }
+        "mouse_right_click" => {
+            let (x, y) = parse_point(payload);
+            click(x, y, "right")
+        }
+        "mouse_middle_click" => {
+            let (x, y) = parse_point(payload);
+            click(x, y, "middle")
+        }
+        "scroll_top" => scroll_to(true),
+        "scroll_bottom" => scroll_to(false),
         "scroll" => {
             let (dx, dy) = parse_scroll(payload);
             scroll(dx, dy)

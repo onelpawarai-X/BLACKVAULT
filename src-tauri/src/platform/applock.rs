@@ -92,6 +92,14 @@ pub fn normalise_name(name: &str) -> String {
     lower.strip_suffix(".exe").unwrap_or(&lower).to_string()
 }
 
+/// Whether a process with this image name is running right now.
+pub fn is_running(process_name: &str) -> bool {
+    let want = normalise_name(process_name);
+    list_processes()
+        .iter()
+        .any(|p| normalise_name(&p.name) == want)
+}
+
 /// Snapshot of one running process.
 #[derive(Debug, Clone)]
 pub struct ProcessInfo {
@@ -136,6 +144,41 @@ pub fn list_processes() -> Vec<ProcessInfo> {
 #[cfg(not(windows))]
 pub fn list_processes() -> Vec<ProcessInfo> {
     Vec::new()
+}
+
+/// The full image path of a running process, when Windows will tell us.
+///
+/// Queried on demand — only for a process that matched a rule — because opening
+/// every process in the table on every tick would be far more expensive than the
+/// enumeration itself.
+#[cfg(windows)]
+pub fn process_path(pid: u32) -> Option<String> {
+    use windows::core::PWSTR;
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let mut buf = [0u16; 1024];
+        let mut len = buf.len() as u32;
+        let result = QueryFullProcessImageNameW(
+            handle,
+            PROCESS_NAME_WIN32,
+            PWSTR(buf.as_mut_ptr()),
+            &mut len,
+        );
+        let _ = CloseHandle(handle);
+        result.ok()?;
+        Some(String::from_utf16_lossy(&buf[..len as usize]))
+    }
+}
+
+#[cfg(not(windows))]
+pub fn process_path(_pid: u32) -> Option<String> {
+    None
 }
 
 /// Terminate one process by id. Returns true when the call succeeded.

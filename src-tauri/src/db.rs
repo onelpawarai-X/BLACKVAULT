@@ -276,16 +276,18 @@ impl Db {
         Ok(())
     }
 
-    /// Seed the default command set on first run. Returns true when seeding happened.
+    /// Seed the built-in command set. Returns true when anything was added.
+    ///
+    /// Every row is inserted with `INSERT OR IGNORE`, so this is also the
+    /// top-up path: an installation that predates a built-in command gains it on
+    /// the next start, while a command the user has already customised under the
+    /// same phrase is never overwritten.
     pub fn seed_default_commands(&self) -> BvResult<bool> {
-        let existing: i64 = {
+        let now = Utc::now().to_rfc3339();
+        let before: i64 = {
             let c = self.conn.lock();
             c.query_row("SELECT COUNT(*) FROM voice_commands", [], |r| r.get(0))?
         };
-        if existing > 0 {
-            return Ok(false);
-        }
-        let now = Utc::now().to_rfc3339();
         let defaults: &[(&str, &str, &str, Option<&str>, bool, bool)] = &[
             // The unlock phrase is deliberately *not* a command: speaking it on
             // the lock screen must run the passphrase check, never unlock on
@@ -295,7 +297,6 @@ impl Db {
             ("next video", "next video", "media_next", None, false, true),
             ("scroll", "scroll", "scroll", Some("down:600"), false, true),
             ("press enter", "press enter", "key_press", Some("enter"), false, true),
-            ("next", "next", "media_next", None, false, true),
             ("previous", "previous", "media_prev", None, false, true),
             ("play", "play", "media_play_pause", None, false, true),
             ("pause", "pause", "media_play_pause", None, false, true),
@@ -313,6 +314,32 @@ impl Db {
             ("open notepad", "open notepad", "launch_app", Some("Notepad"), false, true),
             ("open file explorer", "open file explorer", "launch_app", Some("File Explorer"), false, true),
             ("open settings", "open settings", "open_url", Some("ms-settings:"), false, true),
+            // --- hands-free desktop control ------------------------------------
+            // A video, a document or a web page is driven the way a keyboard
+            // would drive it, so nothing here needs the target application to
+            // cooperate. `click` and `double click` press wherever the pointer
+            // already is, which is what "click" means when the user is pointing
+            // at something.
+            ("scroll top", "scroll top", "scroll_top", None, false, true),
+            ("scroll to top", "scroll to top", "scroll_top", None, false, true),
+            ("scroll bottom", "scroll bottom", "scroll_bottom", None, false, true),
+            ("scroll to bottom", "scroll to bottom", "scroll_bottom", None, false, true),
+            ("page down", "page down", "key_press", Some("pagedown"), false, true),
+            ("page up", "page up", "key_press", Some("pageup"), false, true),
+            ("space bar", "space bar", "key_press", Some("space"), false, true),
+            ("full screen", "full screen", "key_press", Some("f11"), false, true),
+            ("double click", "double click", "mouse_double_click", None, false, true),
+            ("right click", "right click", "mouse_right_click", None, false, true),
+            ("escape", "escape", "key_press", Some("escape"), false, true),
+            ("go back", "go back", "key_press", Some("alt+left"), false, true),
+            ("go forward", "go forward", "key_press", Some("alt+right"), false, true),
+            ("new tab", "new tab", "key_press", Some("ctrl+t"), false, true),
+            ("close tab", "close tab", "key_press", Some("ctrl+w"), false, true),
+            ("reload", "reload", "key_press", Some("f5"), false, true),
+            ("copy", "copy", "key_press", Some("ctrl+c"), false, true),
+            ("paste", "paste", "key_press", Some("ctrl+v"), false, true),
+            ("undo", "undo", "key_press", Some("ctrl+z"), false, true),
+            ("switch window", "switch window", "key_press", Some("alt+tab"), false, true),
         ];
         let c = self.conn.lock();
         for (phrase, action, action_type, payload, requires_auth, builtin) in defaults {
@@ -322,7 +349,8 @@ impl Db {
                 params![phrase, action, action_type, payload, *requires_auth as i64, *builtin as i64, now],
             )?;
         }
-        Ok(true)
+        let after: i64 = c.query_row("SELECT COUNT(*) FROM voice_commands", [], |r| r.get(0))?;
+        Ok(after != before)
     }
 
     // -------------------------------------------------------- launcher apps

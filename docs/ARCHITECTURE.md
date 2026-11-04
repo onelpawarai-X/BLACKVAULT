@@ -149,6 +149,43 @@ configured, and it can never complete one at all when the passphrase hash does
 not match — the hash check comes first, and it is not bypassable by sounding
 like the user.
 
+## 6. Data flow: a protected application or file is opened
+
+Both guards raise the same window, because both ask the same question. The
+window is created by the core, not by the control centre, so it appears whether
+or not the control centre is on screen — and the control centre is normally in
+the tray.
+
+```
+protected app starts                        protected file is opened
+  → guard_apps, every 0.4 s                   → guard_files, every 5 s
+  → rule is locked, no authorisation          → last-access time moved
+  → commands::raise_prompt                    → commands::raise_prompt
+        creates the "prompt" window with ?prompt=1
+        registers a one-shot token in AppState
+  → the window calls answer_prompt(token, pin, phrase)
+  → auth::verify_pin / verify_passphrase / verify_hello
+  → accepted: grant the process name for 5 min, or unseal the item
+              relaunch the application / open the item
+  → refused or abandoned: the item stays sealed,
+              the application is terminated at the end of the grace period
+```
+
+Two details are worth naming. The token is single-use and cleared when the
+window closes, so a stale window cannot release anything. And the window carries
+no security state of its own: it forwards an answer and closes, which keeps the
+decision in one place.
+
+## 7. Why the privacy mode is not the Windows lock screen
+
+`Win+L` is the real secure desktop. It is a different session, it is owned by
+Windows, and nothing can be drawn over it. BLACKVAULT's privacy mode is
+deliberately *not* that: it is a top-most full-screen window on the user's own
+desktop. Background work — downloads, builds, agents — keeps running, which is
+the entire point. It is a privacy screen, not a security boundary, and
+`Ctrl+Alt+Del` still reaches the real secure desktop at any time. The
+documentation says so in as many words rather than implying otherwise.
+
 ## 6. Voice engine internals
 
 ```

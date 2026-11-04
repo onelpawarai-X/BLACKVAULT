@@ -237,6 +237,32 @@ fn scan_uninstall_registry(found: &mut Vec<DeviceScanResult>, seen: &mut std::co
     }
 }
 
+/// Hand a file or folder to whatever application owns it.
+///
+/// This is what `ShellExecute` is for, and it is the only way a folder opens in
+/// Explorer. The path is passed as an argument, never through a shell string, so
+/// a name with spaces or quotes in it cannot become a second command.
+#[cfg(windows)]
+pub fn open_with_default(path: &Path) -> BvResult<()> {
+    use std::os::windows::process::CommandExt;
+    if !path.exists() {
+        return Err(BvError::msg("the item no longer exists"));
+    }
+    let target = path.to_string_lossy().to_string();
+    std::process::Command::new("rundll32.exe")
+        .arg("url.dll,FileProtocolHandler")
+        .arg(&target)
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .spawn()
+        .map_err(|e| BvError::msg(format!("could not open the item: {e}")))?;
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn open_with_default(_path: &Path) -> BvResult<()> {
+    Err(BvError::Unsupported("opening files".into()))
+}
+
 /// Launch an executable directly with optional arguments and working directory.
 pub fn launch(exe: &str, args: Option<&str>, cwd: Option<&str>) -> BvResult<()> {
     if exe.trim().is_empty() {

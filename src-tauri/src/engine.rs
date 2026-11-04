@@ -24,9 +24,14 @@ use crate::voice::router::RouteKind;
 use crate::voice::{Utterance, VoiceEngine};
 
 /// How long a protected application may keep running while the authentication
-/// prompt is up. Long enough to type a PIN, short enough that a locked app does
-/// not stay open indefinitely.
-const BLOCK_GRACE: Duration = Duration::from_secs(20);
+/// prompt is up. Overridden by `app_lock_grace_secs`; the constant is the floor
+/// used when a settings file predates the setting.
+const BLOCK_GRACE: Duration = Duration::from_secs(45);
+
+/// How often the authentication card is re-raised while a protected
+/// application waits. It used to be emitted only in the first 700 ms of the
+/// grace window, so closing the card made it impossible to get back.
+const CHALLENGE_REPEAT: Duration = Duration::from_secs(8);
 
 /// Start every background concern. Idempotent per process.
 pub fn spawn(state: Arc<AppState>) {
@@ -39,22 +44,18 @@ pub fn spawn(state: Arc<AppState>) {
         s.emit(CoreEvent::Voice(st));
     }));
 
-    // 1b. Offline word recognition. This is what actually understands the
-    // user's phrases; the DTW engine above is kept for the voiceprint check.
+    // 1b. Offline word recognition (Windows SAPI). This is *off* by default.
+    //
+    // It used to start unconditionally, and on a machine whose Windows speech
+    // pack is slow to load it held the audio device and the COM apartment,
+    // which is what made the whole desktop feel like it had stopped. The
+    // endpoint recogniser below does the same job without touching SAPI, so
+    // SAPI is now an opt-in in Settings for machines with no network.
     let s = Arc::clone(&state);
     state
         .speech
         .set_sink(Arc::new(move |text: String| on_text(&s, Recogniser::Sapi, &text)));
-    let speech_ok = crate::platform::speech::SpeechEngine::available();
-    state
-        .speech_available
-        .store(speech_ok, Ordering::Relaxed);
-    if !speech_ok {
-        log::warn!(
-            "no offline speech recogniser is installed; commands will only work \
-             after a phrase has been taught by voice"
-        );
-    }
+    state.speech_available.store(false, Ordering::Relaxed);
 
     // 2. Rebuild the recogniser templates from the database.
     rebuild_templates(&state);
@@ -185,11 +186,25 @@ pub fn speech_phrases(state: &Arc<AppState>) -> Vec<String> {
 /// While the overlay is up and the passphrase factor is configured, a dictation
 /// grammar is armed too, so the user can speak the passphrase to unlock.
 pub fn restart_speech(state: &Arc<AppState>) {
-    if !state.speech_available.load(Ordering::Relaxed) {
+    let settings = state.settings();
+    // The offline recogniser is an opt-in. When it is off, drop any grammar
+    // that is running rather than leaving a stale listener behind.
+    if !settings.offline_recognition {
+        if state.speech_available.swap(false, Ordering::Relaxed) {
+            state.speech.stop();
+            log::info!("offline recogniser stopped (disabled in settings)");
+        }
         return;
     }
+    if !state.speech_available.load(Ordering::Relaxed) {
+        // Probe once; the answer cannot change while the process lives.
+        if !crate::platform::speech::SpeechEngine::available() {
+            log::warn!("the offline recogniser is enabled but Windows has none installed");
+            return;
+        }
+        state.speech_available.store(true, Ordering::Relaxed);
+    }
     let phrases = speech_phrases(state);
-    let settings = state.settings();
     let dictation = state.mode() != SecurityMode::Unlocked
         && settings.listen_while_locked
         && state
@@ -210,6 +225,8 @@ pub fn enforce_file_protection(state: &Arc<AppState>) {
     let Ok(items) = state.db.list_protected_items() else {
         return;
     };
+    let settings = state.settings();
+    let mode = settings.file_lock_mode.clone();
     for item in items {
         if !item.protected {
             continue;
@@ -218,10 +235,12 @@ pub fn enforce_file_protection(state: &Arc<AppState>) {
         if !p.exists() {
             continue;
         }
-        if crate::platform::fileprot::is_sealed(p) {
+        // Re-seal when the deny ACE is missing *for the configured mode*, so
+        // changing the mode takes effect and a hand-edited DACL is repaired.
+        if crate::platform::fileprot::is_sealed_with(p, &mode) {
             continue;
         }
-        match crate::platform::fileprot::seal_item(p) {
+        match crate::platform::fileprot::seal_item(p, &settings.file_lock_mode) {
             Ok(applied) if applied.acl || applied.encrypted => {
                 log::warn!("re-sealed {} after the protection was removed", item.path);
                 state.log_event(
@@ -340,11 +359,6 @@ fn on_text(state: &Arc<AppState>, source: Recogniser, text: &str) {
         return;
     }
 
-    if settings.require_wake_for_commands && !state.router.lock().armed(Instant::now()) {
-        state.toast("Wake phrase required", "Say the wake phrase first.", "warn");
-        return;
-    }
-
     let commands = match state.db.list_commands() {
         Ok(c) => c,
         Err(_) => return,
@@ -354,15 +368,24 @@ fn on_text(state: &Arc<AppState>, source: Recogniser, text: &str) {
         .filter(|c| c.enabled)
         .map(|c| c.phrase.clone())
         .collect();
-    let Some((phrase, _score)) = crate::voice::matcher::match_text(&heard, &phrases) else {
-        state.toast(
-            "Not recognised",
-            &format!("\u{201c}{heard}\u{201d} matches no command."),
-            "warn",
-        );
-        // A phrase that is not a command may still be the secret passphrase.
-        // Verifying it is the same PBKDF2 comparison the lock screen runs, so
-        // speech is only the input method here — never the proof.
+    let matched = crate::voice::matcher::match_text(&heard, &phrases);
+
+    // The wake phrase is only required when the user asked for it *and* the
+    // words were actually a command. Complaining about every unrecognised
+    // utterance turned ordinary conversation in the room into a stream of
+    // "wake phrase required" notices, which is what made the app unusable.
+    if settings.require_wake_for_commands
+        && matched.is_some()
+        && !state.router.lock().armed(Instant::now())
+    {
+        state.toast("Wake phrase required", "Say the wake phrase first.", "warn");
+        return;
+    }
+
+    let Some((phrase, _score)) = matched else {
+        // Anything that is not a command is simply not ours. It may still be the
+        // secret passphrase: verifying it is the same PBKDF2 comparison the lock
+        // screen runs, so speech is only the input method here — never the proof.
         if !heard.starts_with("open ")
             && state
                 .db
@@ -674,6 +697,7 @@ fn supervisor(state: Arc<AppState>) {
     let mut router_guard = Instant::now();
     let mut last_guard = Instant::now();
     let mut last_file_guard = Instant::now();
+    let mut last_open_guard = Instant::now();
     let mut last_voice_check = Instant::now();
     let mut unlocked_at = Instant::now();
     let mut last_mode = state.mode();
@@ -715,6 +739,7 @@ fn supervisor(state: Arc<AppState>) {
             // The offline recogniser must survive a device change or a crash
             // too: it is the component that actually understands words.
             if should_run
+                && settings.offline_recognition
                 && state.speech_available.load(Ordering::Relaxed)
                 && !state.speech.is_running()
             {
@@ -748,6 +773,8 @@ fn supervisor(state: Arc<AppState>) {
         }
 
         // --- app guard ---------------------------------------------------
+        // A protected application is stopped when it is not authorised, and the
+        // prompt for it is raised by the guard below.
         if last_guard.elapsed() > Duration::from_millis(400) {
             last_guard = Instant::now();
             guard_apps(&state);
@@ -760,6 +787,15 @@ fn supervisor(state: Arc<AppState>) {
         if last_file_guard.elapsed() > Duration::from_secs(5) {
             last_file_guard = Instant::now();
             enforce_file_protection(&state);
+        }
+
+        // --- prompt on open ----------------------------------------------
+        // A protected item stays reachable on purpose, so the moment it is
+        // opened is the moment to ask for the password. Polled faster than the
+        // re-seal pass because the user is standing there waiting.
+        if last_open_guard.elapsed() > Duration::from_millis(900) {
+            last_open_guard = Instant::now();
+            guard_file_opens(&state);
         }
 
         // --- idle / auto relock ------------------------------------------
@@ -782,7 +818,68 @@ fn supervisor(state: Arc<AppState>) {
     }
 }
 
+/// Watch for a protected item being opened and raise the password prompt.
+///
+/// Only items sealed in `prompt` mode are watched: a `hard` seal cannot be
+/// opened at all, so there is no open to notice, and EFS keeps the content
+/// unreadable at rest in either mode.
+fn guard_file_opens(state: &Arc<AppState>) {
+    let settings = state.settings();
+    if !settings.file_guard_enabled || crate::platform::fileprot::is_hard(&settings.file_lock_mode) {
+        return;
+    }
+    let Ok(items) = state.db.list_protected_items() else {
+        return;
+    };
+    let watched: Vec<crate::platform::fileguard::Watched> = items
+        .iter()
+        .filter(|i| i.protected)
+        .map(|i| crate::platform::fileguard::Watched {
+            id: i.id,
+            path: i.path.clone(),
+            kind: i.kind.clone(),
+        })
+        .collect();
+    if watched.is_empty() {
+        return;
+    }
+    let watches = crate::platform::fileguard::watch_list(&watched);
+    let times = crate::platform::fileguard::access_times(&watches);
+    let opened = {
+        let mut seen = state.file_seen.lock();
+        crate::platform::fileguard::detect(&mut seen, &watches, &times)
+    };
+    for id in opened {
+        let Some(item) = items.iter().find(|i| i.id == id) else {
+            continue;
+        };
+        // One prompt at a time. Opening five files in a folder should ask once,
+        // and the answer covers the session until the next lock.
+        if state.pending_prompt.lock().is_some() {
+            break;
+        }
+        crate::commands::raise_prompt(
+            state,
+            crate::state::PromptTarget::Path {
+                item_id: id,
+                path: item.path.clone(),
+            },
+        );
+        state.log_event(
+            "file_challenge",
+            "warn",
+            &format!("{} was opened", item.display_name),
+            Some(&item.path),
+        );
+    }
+}
+
 fn guard_apps(state: &Arc<AppState>) {
+    let settings = state.settings();
+    if !settings.app_guard_enabled {
+        return;
+    }
+    let grace = Duration::from_secs(settings.app_lock_grace_secs.max(5));
     let rules = match state.db.list_protected_apps() {
         Ok(r) => r,
         Err(_) => return,
@@ -811,25 +908,24 @@ fn guard_apps(state: &Arc<AppState>) {
             // Killing a protected app the instant it appears is what made the
             // feature feel broken: the app flashed up, vanished, and nothing
             // ever asked for a password.
-            let first_seen = *state
-                .pending_blocks
-                .lock()
-                .entry(name.clone())
-                .or_insert(now);
+            let mut blocks = state.pending_blocks.lock();
+            let (first_seen, last_ask) = *blocks.entry(name.clone()).or_insert((now, now));
+            drop(blocks);
             let waited = now.duration_since(first_seen);
-            if waited < BLOCK_GRACE {
-                // Ask once per grace window, not on every pass of the loop.
-                if waited < Duration::from_millis(700) {
-                    state.emit(CoreEvent::AppChallenge {
-                        rule_id: rule.id,
-                        process_name: rule.process_name.clone(),
-                        display_name: rule.display_name.clone(),
-                        grace_secs: (BLOCK_GRACE - waited).as_secs(),
-                    });
-                    state.toast(
-                        "Protected application",
-                        &format!("Authenticate to keep {} running.", rule.display_name),
-                        "warn",
+            let since_ask = now.duration_since(last_ask);
+            if waited < grace {
+                // Re-raise the card periodically. The user may have dismissed
+                // it, and there is no other way back to the prompt.
+                if since_ask >= CHALLENGE_REPEAT {
+                    // The prompt is its own window: the control centre is in the
+                    // tray while the user works, so a card drawn into it would
+                    // never be seen.
+                    crate::commands::raise_prompt(
+                        state,
+                        crate::state::PromptTarget::App {
+                            rule_id: rule.id,
+                            process: rule.process_name.clone(),
+                        },
                     );
                     state.log_event(
                         "app_challenge",
@@ -837,6 +933,9 @@ fn guard_apps(state: &Arc<AppState>) {
                         &format!("{} needs authentication", rule.display_name),
                         Some(&format!("pid {}", matching[0].pid)),
                     );
+                    if let Some(entry) = state.pending_blocks.lock().get_mut(&name) {
+                        entry.1 = now;
+                    }
                 }
                 continue;
             }
@@ -853,8 +952,9 @@ fn guard_apps(state: &Arc<AppState>) {
             }
             state.pending_blocks.lock().remove(&name);
         } else {
-            // Authorised: forget the pending prompt.
+            // Authorised: forget the pending prompt and close its window.
             state.pending_blocks.lock().remove(&name);
+            crate::commands::close_prompt_for_app(state, rule.id);
         }
     }
 
@@ -866,7 +966,10 @@ fn guard_apps(state: &Arc<AppState>) {
             state.authorizations.lock().revoke(&name);
         }
     }
-    state.pending_blocks.lock().retain(|_, at| at.elapsed() < Duration::from_secs(120));
+    state
+        .pending_blocks
+        .lock()
+        .retain(|_, (at, _)| at.elapsed() < Duration::from_secs(300));
 }
 
 // ------------------------------------------------------------- full-screen mode

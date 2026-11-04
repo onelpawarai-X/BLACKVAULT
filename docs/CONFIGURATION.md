@@ -35,6 +35,11 @@ and no registry key beyond the single `HKCU\...\Run` value when auto-start is on
 | `multiMonitorOverlay` | `true` | — | Cover every monitor, not just the primary |
 | `hideCursorWhenLocked` | `true` | — | Hide the pointer in privacy mode |
 | `blockTaskSwitchWhenLocked` | `false` | — | Swallow Win / Alt+Tab / Alt+Esc while locked |
+| `offlineRecognition` | `false` | — | Use the Windows offline recogniser as well as the endpoint |
+| `appGuardEnabled` | `true` | — | Watch for protected applications starting |
+| `appLockGraceSecs` | `12` | 5–300 | Seconds an unauthorised application may run while its prompt is up |
+| `fileGuardEnabled` | `true` | — | Raise the prompt when a protected item is opened |
+| `fileLockMode` | `"prompt"` | `prompt` / `hard` | `prompt` denies write and delete so the item still opens; `hard` denies read too |
 | `storeAudio` | `false` | forced `false` | Never enabled; audio is never persisted |
 | `startWithWindows` | `false` | — | Write the per-user Run entry |
 | `theme` | `"black"` | — | The only theme; kept for forward compatibility |

@@ -124,6 +124,7 @@ RS
 cat > src/platform/mod.rs <<'RS'
 pub mod applock;
 pub mod automation;
+pub mod fileguard;
 pub mod fileprot;
 pub mod hello;
 pub mod launcher;
@@ -132,7 +133,7 @@ pub mod service;
 pub mod speech;
 RS
 
-for f in applock automation fileprot hello launcher lock service speech; do
+for f in applock automation fileguard fileprot hello launcher lock service speech; do
   cp "$src/platform/$f.rs" "src/platform/$f.rs"
 done
 cp "$src/crypto.rs" "src/crypto.rs"

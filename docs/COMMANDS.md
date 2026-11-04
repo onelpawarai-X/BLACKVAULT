@@ -13,6 +13,10 @@ command* off, commands run without the wake word — convenient for a quiet room
 noisy in a crowd. The lock screen ignores this setting entirely: there, only
 unlock-class phrases are considered.
 
+When the wake phrase *is* required, BLACKVAULT only complains if the words you
+said were actually one of your commands. Ordinary conversation in the room is
+ignored silently rather than answered with a "wake phrase required" notice.
+
 ## 2. Core commands
 
 | Phrase | Action | Notes |
@@ -35,18 +39,40 @@ unlock-class phrases are considered.
 These are the real system media keys, so they work with whatever has media
 focus — a browser video, a music player, a podcast app.
 
-## 4. Pointer and keyboard
+## 4. Pointer, keyboard and hands-free control
 
 | Phrase | Action | Payload |
 |---|---|---|
 | "click" | Left-click at the current cursor position | — |
+| "double click" | Double-click at the current cursor position | — |
+| "right click" | Right-click at the current cursor position | — |
+| "scroll" | Scroll down one screen | `down:600` |
 | "scroll down" | Scroll down | `down:600` |
 | "scroll up" | Scroll up | `up:600` |
+| "scroll top" / "scroll to top" | Jump to the top of the page or document | — |
+| "scroll bottom" / "scroll to bottom" | Jump to the end of the page or document | — |
+| "page down" | Next page | `pagedown` |
+| "page up" | Previous page | `pageup` |
 | "press enter" | Press Enter | `enter` |
+| "space bar" | Press Space | `space` |
+| "escape" | Press Escape | `escape` |
+| "full screen" | Toggle full screen in the front window | `f11` |
+| "go back" | Back in a browser or file manager | `alt+left` |
+| "go forward" | Forward | `alt+right` |
+| "new tab" | New browser tab | `ctrl+t` |
+| "close tab" | Close the current tab | `ctrl+w` |
+| "reload" | Reload the page | `f5` |
+| "copy" / "paste" / "undo" | Clipboard and history | `ctrl+c` / `ctrl+v` / `ctrl+z` |
+| "switch window" | Next window | `alt+tab` |
 
-`click` sends a real `SendInput` click wherever the pointer already is. To click
-a fixed point, edit the command's payload to `x,y` (for example `640,360`) and
-it will move the cursor there first.
+`click`, `double click` and `right click` send real `SendInput` events wherever
+the pointer already is — point at the thing and speak. To click a fixed point,
+edit the command's payload to `x,y` (for example `640,360`) and the cursor will
+move there first.
+
+`scroll top` and `scroll bottom` send `Ctrl+Home` / `Ctrl+End` and then a long
+run of wheel notches. That combination covers documents, web pages and video
+players, none of which share a single "go to the end" input.
 
 ## 5. Desktop
 
@@ -84,7 +110,12 @@ When you create a command you pick one of these action types:
 | `open_url` | a URL the shell may open | `https://example.com` |
 | `key_press` | a key combo | `ctrl+shift+esc` |
 | `mouse_click` | empty, or `x,y` | `640,360` |
+| `mouse_double_click` | empty, or `x,y` | `640,360` |
+| `mouse_right_click` | empty, or `x,y` | `640,360` |
+| `mouse_middle_click` | empty, or `x,y` | `640,360` |
 | `scroll` | `direction:amount` | `down:600` |
+| `scroll_top` | — | — |
+| `scroll_bottom` | — | — |
 | `media_next` | — | — |
 | `media_prev` | — | — |
 | `media_play_pause` | — | — |

@@ -199,6 +199,16 @@ export interface Settings {
   sttLanguage: string;
   sttLive: boolean;
   sttMinConfidence: number;
+  /** Opt-in Windows offline recogniser. Off by default; the endpoint does the work. */
+  offlineRecognition: boolean;
+  /** `prompt` asks for a password when the item is opened; `hard` denies reading it. */
+  fileLockMode: "prompt" | "hard";
+  /** Stop a protected application the moment it starts. */
+  appGuardEnabled: boolean;
+  /** Seconds an unauthorised application may run while the prompt is up. */
+  appLockGraceSecs: number;
+  /** Ask for a password when a protected item is opened. */
+  fileGuardEnabled: boolean;
 }
 
 export interface VoiceIdentity {

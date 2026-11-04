@@ -62,6 +62,30 @@ pub struct Settings {
     /// Transcripts below this confidence are ignored. 0 accepts everything.
     #[serde(default)]
     pub stt_min_confidence: f32,
+
+    /// Watch the process table for applications that have been put in the
+    /// protected list and bring them to a halt when they start unauthorised.
+    pub app_guard_enabled: bool,
+    /// Seconds a protected application may run while its authentication prompt
+    /// is up. The prompt appears as an overlay on the application itself, so
+    /// the user authenticates where they are rather than in BLACKVAULT.
+    pub app_lock_grace_secs: u64,
+    /// Keep a protected file or folder unopenable, and offer the password at the
+    /// moment it is opened rather than inside BLACKVAULT.
+    pub file_guard_enabled: bool,
+
+    /// Whether the offline Windows recogniser runs at all. Off by default:
+    /// BLACKVAULT recognises speech through its own endpoint, and starting the
+    /// Windows recogniser as well made the machine feel like it had stopped.
+    pub offline_recognition: bool,
+
+    /// How hard a protected file or folder is sealed.
+    ///
+    /// `prompt` (the default) denies write and delete but leaves read alone, so
+    /// opening the item is what raises the password prompt. `hard` denies read
+    /// as well, which is the strongest seal Windows offers but leaves the user
+    /// with nothing but "access is denied" and no way to be asked.
+    pub file_lock_mode: String,
 }
 
 fn default_stt_endpoint() -> String {
@@ -116,6 +140,11 @@ impl Default for Settings {
             stt_language: default_stt_language(),
             stt_live: false,
             stt_min_confidence: 0.0,
+            app_guard_enabled: true,
+            app_lock_grace_secs: 12,
+            file_guard_enabled: true,
+            offline_recognition: false,
+            file_lock_mode: "prompt".into(),
         }
     }
 }
@@ -138,6 +167,10 @@ impl Settings {
         }
         if self.stt_endpoint.trim().is_empty() {
             self.stt_endpoint = default_stt_endpoint();
+        }
+        self.app_lock_grace_secs = self.app_lock_grace_secs.clamp(5, 300);
+        if self.file_lock_mode != "hard" {
+            self.file_lock_mode = "prompt".into();
         }
         match self.stt_language.trim().to_ascii_lowercase().as_str() {
             "bn" | "bn-bd" | "bengali" => self.stt_language = "bn".into(),

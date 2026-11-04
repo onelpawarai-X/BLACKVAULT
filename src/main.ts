@@ -16,11 +16,17 @@ import { getState, setState, subscribe } from "./lib/store";
 import { createShell, splash } from "./ui/shell";
 import { createLockScreen, isOverlayWindow, renderPassiveOverlay } from "./ui/lock";
 import { createWizard } from "./ui/wizard";
+import { renderPrompt } from "./ui/prompt";
 
 const root = document.getElementById("app")!;
 
-// A secondary-monitor overlay is a very small program: black, nothing else.
-if (isOverlayWindow()) {
+// The window decides what it is by its query string, set when the core creates
+// it: `?overlay=1` is a second monitor, `?prompt=1` is an authentication
+// prompt, and anything else is the control centre.
+const query = new URLSearchParams(location.search);
+if (query.get("prompt") === "1") {
+  renderPrompt(root);
+} else if (isOverlayWindow()) {
   renderPassiveOverlay(root);
 } else {
   void bootPrimary();
@@ -67,6 +73,20 @@ async function bootPrimary(): Promise<void> {
         if (e.payload.ok) toast(toastHost, `“${e.payload.phrase}”`, e.payload.action, "info");
         else toast(toastHost, `“${e.payload.phrase}”`, e.payload.action, "warn");
         break;
+      case "appChallenge":
+      case "pathChallenge":
+        // The card for these lives in the prompt window, which has its own
+        // listener. Here they only raise a toast, so the dashboard shows that
+        // something was asked for even if the prompt is behind another window.
+        toast(
+          toastHost,
+          e.type === "appChallenge" ? e.payload.displayName : e.payload.displayName,
+          e.type === "appChallenge"
+            ? "Authentication requested for a protected application."
+            : "Authentication requested for a protected item.",
+          "warn",
+        );
+        break;
       case "auth":
         // A successful factor is not the end of the unlock — the second factor
         // still has to be supplied. The ceremony runs on the "unlocked" event,
@@ -75,9 +95,6 @@ async function bootPrimary(): Promise<void> {
         break;
       case "challenge":
         lock.setChallenge(e.payload.factors);
-        break;
-      case "appChallenge":
-        showAppChallenge(e.payload);
         break;
       case "unlocked":
         lock.playUnlock(true, "ACCESS GRANTED", e.payload.token);
@@ -96,67 +113,6 @@ async function bootPrimary(): Promise<void> {
   });
 
   subscribe(() => applyAnim());
-
-  // A protected application was opened outside BLACKVAULT. It is still running:
-  // the guard holds it for a grace period instead of killing it outright, and
-  // this is where the user proves they are allowed to have it.
-  let appPrompt: HTMLElement | null = null;
-  function showAppChallenge(p: {
-    ruleId: number;
-    displayName: string;
-    graceSecs: number;
-  }): void {
-    if (appPrompt) return;
-    const card = el("div", { class: "bv-appchallenge" });
-    const title = el("div", { class: "bv-appchallenge-title" }, `${p.displayName} is protected`);
-    const body = el(
-      "div",
-      { class: "bv-appchallenge-body" },
-      `Authenticate to keep it running. It closes in ${Math.max(0, Math.round(p.graceSecs))} seconds otherwise.`,
-    );
-    const pin = el("input", {
-      class: "bv-input",
-      type: "password",
-      placeholder: "PIN or passphrase",
-      autocomplete: "off",
-    }) as HTMLInputElement;
-    const actions = el("div", { class: "bv-appchallenge-actions" });
-    const close = (): void => {
-      card.remove();
-      appPrompt = null;
-    };
-    const allow = async (): Promise<void> => {
-      try {
-        await bridge.submitPin(pin.value);
-      } catch {
-        /* fall through to the explicit authorise below */
-      }
-      try {
-        await bridge.authorizeApp(p.ruleId);
-        toast(toastHost, "Application released", `${p.displayName} may keep running.`);
-      } catch (e) {
-        toast(toastHost, "Could not release", String(e), "critical");
-      }
-      close();
-    };
-    const deny = (): void => {
-      void bridge.setAppLock(p.ruleId, true);
-      close();
-    };
-    pin.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter") void allow();
-      if (ev.key === "Escape") deny();
-    });
-    const allowBtn = el("button", { class: "bv-btn primary", type: "button" }, "Authenticate");
-    allowBtn.addEventListener("click", () => void allow());
-    const denyBtn = el("button", { class: "bv-btn ghost", type: "button" }, "Close it");
-    denyBtn.addEventListener("click", deny);
-    actions.append(allowBtn, denyBtn);
-    card.append(title, body, pin, actions);
-    root.appendChild(card);
-    appPrompt = card;
-    pin.focus();
-  }
 
   // ------------------------------------------------------------------- boot
   try {

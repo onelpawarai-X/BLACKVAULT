@@ -21,10 +21,11 @@ telemetry.
 | **Lock by voice** | Say *"lock this PC"*. A borderless, top-most, full-screen black overlay covers the desktop on every monitor. Background processes, downloads and AI agents keep running. |
 | **Unlock by voice** | Say *"unlock this PC"*, then speak your secret passphrase. The recognised words must hash-match the stored passphrase, and the configured second factor (PIN, pattern or Windows Hello) still has to follow. Optionally enrol a voiceprint so the voice itself must match as well. |
 | **Voice launcher** | *"open chrome"*, *"open visual studio code"* — only apps on your approved list can ever be launched by voice. |
-| **App lock** | Protect any `.exe`. A watchdog terminates it while locked, and releases it only after you authenticate. |
-| **File & folder protection** | NTFS deny-ACL plus EFS content encryption. Never hide, never rename. |
-| **Automation** | *"next"*, *"previous"*, *"scroll down"*, *"click"*, *"press enter"*, *"volume up"*, *"mute"*, *"show desktop"*, *"take a screenshot"*, and arbitrary key combos. All through real `SendInput`. |
-| **Word recognition** | Offline, on-device, no cloud and no model download: Windows SAPI with a grammar built from your wake phrase, unlock phrase and every command. Type a command and it works immediately — there is no training step. |
+| **App lock** | Protect any `.exe`. A watchdog holds it and opens a password window within a second of it starting; the application is released when you answer, and closed if you do not. |
+| **File & folder protection** | NTFS deny-ACL plus EFS content encryption. Never hide, never rename. Opening a sealed item raises the same password window. |
+| **Password window** | Its own always-on-top window, so it appears even while the control centre is in the tray. PIN, password or spoken secret phrase; Windows Hello offered when the machine has it, never required. |
+| **Automation** | *"next"*, *"previous"*, *"scroll down"*, *"scroll top"*, *"page down"*, *"click"*, *"double click"*, *"press enter"*, *"full screen"*, *"new tab"*, *"volume up"*, *"mute"*, *"show desktop"*, *"take a screenshot"*, and arbitrary key combos. All through real `SendInput`. |
+| **Word recognition** | Your own speech-to-text endpoint by default; the Windows offline recogniser is an opt-in switch. Either way a command runs the moment you type it into the editor — there is no training step. |
 | **Factors** | Secret passphrase, numeric PIN, 3×3 pattern, Windows Hello (fingerprint/face/PIN). All local, all salted-hashed, all rate limited. |
 
 ## What it deliberately does **not** do

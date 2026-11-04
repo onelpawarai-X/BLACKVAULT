@@ -114,19 +114,48 @@ what Administrator means. Protecting files you do not own needs elevation.
 
 Both protections are re-checked. The supervisor re-applies the DACL every few
 seconds if a sealed item's deny ACE has been edited away, so a protection that
-was removed by hand does not stay removed. Releasing an item is itself an
-authenticated action: `reveal_path` asks for the same factor as unlocking a
-protected application, and the item re-seals on the next lock.
+was removed by hand does not stay removed.
+
+Releasing an item is itself an authenticated action, and it happens in the
+prompt window rather than in the control centre. `reveal_path` raises that
+window; the PIN, the password or the secret passphrase is verified against the
+same PBKDF2 hash the lock screen uses, and the item re-seals on the next lock.
+Windows Hello is offered as an extra button when the machine supports it, never
+as the only way through — a machine without Hello can still release its own
+files.
+
+`fileLockMode` decides what "sealed" means:
+
+- `prompt` (default) denies write, append and delete, but leaves read allowed.
+  The item therefore still opens — Word opens the document, Explorer opens the
+  folder — and the prompt window appears on top asking for the password. This is
+  the mode where the user sees the feature working.
+- `hard` denies read as well, so the content cannot be opened at all and Windows
+  reports its own "access denied". Stronger, but with no card and no way to
+  release from the file itself.
+
+Reading a protected item is noticed by watching its last-access time. A sealed
+item cannot be written to, so its modification time would never change — the
+access time is the signal that something opened it. On a volume where Windows
+has been configured not to update access times (`fsutil behavior set
+DisableLastAccess 1`) that signal is absent, and the **Open** button in
+**Files & Folders** is the guaranteed way to raise the prompt.
 
 ### 2.5 Application lock
 
 A watchdog enumerates processes every 0.4 s. When a process matches a *locked*,
 *require-auth* rule with no live authorisation, BLACKVAULT raises an
-authentication prompt and gives the process a 20-second grace period before
-terminating it. Killing a protected application the instant it appeared — with
-no prompt — was a real bug: the application flashed up, vanished, and nothing
-ever asked for a password. Authorisations are time-bounded (5 minutes) and
-granted only after a successful authentication or a launch through BLACKVAULT.
+authentication prompt and gives the process `appLockGraceSecs` (12 by default)
+before terminating it. Killing a protected application the instant it appeared —
+with no prompt — was a real bug: the application flashed up, vanished, and
+nothing ever asked for a password. Authorisations are time-bounded (5 minutes)
+and granted only after a successful authentication or a launch through
+BLACKVAULT.
+
+The prompt is its own window, not a card inside the control centre, because the
+control centre is in the tray while the user works. Accepting the password
+releases the process name and, if the unauthorised copy was already terminated,
+starts the application again from the path recorded in the rule.
 
 **Honest limit.** This is a race, not a wall: between a process starting and the
 next watchdog tick, it exists for up to 1.2 s. It is designed to stop a

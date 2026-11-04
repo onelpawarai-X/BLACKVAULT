@@ -99,9 +99,9 @@ function render(listEl: HTMLElement, items: ProtectedItem[], ctx: PaneCtx, reloa
           btn("Open", "ghost sm", async () => {
             try {
               await bridge.revealPath(it.id);
-              ctx.toast("Released", `${it.displayName} · access will re-seal on lock`);
+              ctx.toast("Authentication requested", `${it.displayName} · answer the BLACKVAULT card`);
             } catch (e) {
-              ctx.toast("Release failed", String(e), "critical");
+              ctx.toast("Could not request access", String(e), "critical");
             }
           }),
           btn("Unprotect", "danger sm", async () => {
