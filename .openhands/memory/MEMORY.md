@@ -280,3 +280,32 @@ restored from `5270365^`.
   **v6.0.0**: parallel model loading, real key verification, public ZYRAXON catalogue.
   v3.0.0 was deleted and rebuilt once.
 - Detailed history: `.openhands/memory/2026-10-20.md` and `.openhands/memory/2026-10-30.md`.
+
+## BLACKVAULT — Windows release pipeline (2026-11-04)
+Repo `onelpawarai-X/BLACKVAULT` (Tauri 2 + Rust, local-first voice desktop
+security app). Release flow that works, after three failed attempts:
+- **Never run `cargo test --lib` on a Windows runner.** The test binary links
+  against WebView2 and dies before any test with exit `0xc0000139`
+  `STATUS_ENTRYPOINT_NOT_FOUND`. Test the core on Linux instead via
+  `scripts/pure-core-test.sh` (throwaway crate, no SQLite/WebView2) — this is
+  what CI and the release workflow both use now.
+- **Type-check the Win32 code without a Windows SDK** with
+  `scripts/win-check.sh`: it assembles only `platform/*` + `crypto.rs` into a
+  throwaway crate and runs `cargo check --target x86_64-pc-windows-msvc`. The
+  `windows` crate itself is *not* gated on `cfg(windows)`, so the real Win32
+  bindings are checked. Only the `cc`-compiled bundled SQLite needs `lib.exe`,
+  which is why the platform modules are checked in isolation.
+- **windows-rs 0.58 API deltas** that cost the most time (all 41 build errors):
+  `DATA_BLOB`→`CRYPT_INTEGER_BLOB`; `LocalFree` takes `HLOCAL` directly (not
+  `Option`); `DACL_SECURITY_INFORMATION` is in `Win32::Security`, not
+  `Security::Authorization`; `SetNamedSecurityInfoW` owner/group are `PSID`;
+  `EncryptFileW`/`DecryptFileW` return `Result` (`DecryptFileW` takes a reserved
+  flag); registry fns take plain `u32` and return `WIN32_ERROR` (no `map_err`);
+  `RegEnumKeyExW` wants `PWSTR`; GDI fns take handles directly (no `.into()`);
+  `PostMessageW` takes `HWND`; `cpal::traits::DeviceTrait` must be in scope.
+- **Release = push an annotated tag** (`v1.0.0`). The tag-triggered run failed
+  once on the old Windows test step; re-running via `workflow_dispatch` with
+  `{"ref":"main","inputs":{"tag":"v1.0.0"}}` used the fixed workflow and
+  published the release. Assets: MSI, NSIS setup, portable exe, SHA256SUMS.
+- The user gets angry at long *idle* waits: poll every ~15 s and say what is
+  happening; do not sit silent for minutes. And always answer in Bengali.
