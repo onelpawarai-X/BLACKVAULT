@@ -16,8 +16,32 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  verify:
+    name: Verify the core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # The core is tested through the platform-independent harness rather than
+      # `cargo test` on the runner: the full test binary links against WebView2
+      # and aborts with STATUS_ENTRYPOINT_NOT_FOUND before a single test runs.
+      - name: Core tests
+        run: ./scripts/pure-core-test.sh
+
+      - name: Type-check the Windows-only modules
+        run: |
+          rustup target add x86_64-pc-windows-msvc
+          ./scripts/win-check.sh
+
   windows:
     name: Build Windows bundles
+    needs: verify
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,9 +64,6 @@ jobs:
         run: |
           npx tsc --noEmit
           npm test
-
-      - name: Core tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
       - name: Build the application, the MSI and the NSIS installer
         run: npm run tauri:build
