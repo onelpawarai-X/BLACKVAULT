@@ -42,7 +42,9 @@ pub fn spawn(state: Arc<AppState>) {
     // 1b. Offline word recognition. This is what actually understands the
     // user's phrases; the DTW engine above is kept for the voiceprint check.
     let s = Arc::clone(&state);
-    state.speech.set_sink(Arc::new(move |text: String| on_text(&s, &text)));
+    state
+        .speech
+        .set_sink(Arc::new(move |text: String| on_text(&s, Recogniser::Sapi, &text)));
     let speech_ok = crate::platform::speech::SpeechEngine::available();
     state
         .speech_available
@@ -76,7 +78,7 @@ pub fn spawn(state: Arc<AppState>) {
         let s = Arc::clone(&state);
         state
             .stt
-            .start(Arc::new(move |text: String| on_text(&s, &text)));
+            .start(Arc::new(move |text: String| on_text(&s, Recogniser::Sapi, &text)));
     }
 
     // 4. Supervisor thread: app guard + watchdog + timers.
@@ -242,6 +244,18 @@ pub fn enforce_file_protection(state: &Arc<AppState>) {
     }
 }
 
+/// Which recogniser produced a transcript. It is the dedup key: the two
+/// recognisers hear one utterance, so the same phrase from two sources inside a
+/// short window is a duplicate — but the same phrase twice from one source is
+/// the user deliberately repeating a command such as "next".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Recogniser {
+    Sapi,
+    Endpoint,
+    /// A taught phrase matched by the offline voiceprint engine.
+    Template,
+}
+
 /// Push the STT-related settings into the worker.
 pub fn apply_stt_settings(state: &Arc<AppState>) {
     let settings = state.settings();
@@ -259,7 +273,9 @@ pub fn sync_stt(state: &Arc<AppState>) {
     let settings = state.settings();
     if settings.stt_enabled && !state.stt.is_running() {
         let s = Arc::clone(state);
-        state.stt.start(Arc::new(move |text: String| on_text(&s, &text)));
+        state
+            .stt
+            .start(Arc::new(move |text: String| on_text(&s, Recogniser::Endpoint, &text)));
     } else if !settings.stt_enabled && state.stt.is_running() {
         state.stt.stop();
     }
@@ -270,7 +286,7 @@ pub fn sync_stt(state: &Arc<AppState>) {
 /// This is the path that makes the default commands work: the words are matched
 /// against the command list by text, so a command runs the moment it is typed in
 /// the editor — no recording step required.
-fn on_text(state: &Arc<AppState>, text: &str) {
+fn on_text(state: &Arc<AppState>, source: Recogniser, text: &str) {
     let heard = crate::voice::matcher::normalise(text);
     if heard.is_empty() {
         return;
@@ -369,7 +385,7 @@ fn on_text(state: &Arc<AppState>, text: &str) {
         text: phrase.clone(),
         is_final: true,
     });
-    execute_command(state, &phrase);
+    execute_command(state, &phrase, source);
 }
 
 fn match_for(phrase: &str, kind: &str) -> crate::voice::matcher::Match {
@@ -475,23 +491,24 @@ fn on_utterance(state: &Arc<AppState>, utterance: Utterance) {
                 text: best.phrase.clone(),
                 is_final: true,
             });
-            execute_command(state, &best.phrase);
+            execute_command(state, &best.phrase, Recogniser::Template);
         }
     }
 }
 
 /// Look up a command by phrase and run its action.
-pub fn execute_command(state: &Arc<AppState>, phrase: &str) {
-    // Both recognisers can hear the same words, and the live STT stream reports
-    // a partial and then the same segment. Fire once per utterance.
+pub fn execute_command(state: &Arc<AppState>, phrase: &str, source: Recogniser) {
+    // Both recognisers hear the same utterance, and a live stream reports a
+    // partial and then the final segment of it. Dropping a repeat only when the
+    // *other* recogniser produced it keeps a deliberate "next, next" working.
     {
         let mut last = state.last_command.lock();
-        if let Some((prev, at)) = last.as_ref() {
-            if prev == phrase && at.elapsed() < Duration::from_millis(1500) {
+        if let Some((prev, at, from)) = last.as_ref() {
+            if prev == phrase && *from != source && at.elapsed() < Duration::from_millis(1500) {
                 return;
             }
         }
-        *last = Some((phrase.to_string(), Instant::now()));
+        *last = Some((phrase.to_string(), Instant::now(), source));
     }
 
     let commands = match state.db.list_commands() {

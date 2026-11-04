@@ -69,10 +69,11 @@ pub struct AppState {
     /// Routing state (wake-phrase arming) that must persist between utterances.
     pub router: Mutex<Router>,
     pub authorizations: Mutex<Authorizations>,
-    /// The last command that actually ran, with the time it ran. Two
-    /// recognisers (offline SAPI and the STT endpoint) can hear the same words,
-    /// and a command must never fire twice for one utterance.
-    pub last_command: Mutex<Option<(String, Instant)>>,
+    /// The last command that actually ran, when it ran, and which recogniser
+    /// reported it. Two recognisers (offline SAPI and the STT endpoint) can hear
+    /// the same words, and a command must never fire twice for one utterance —
+    /// but the same phrase twice from one recogniser is a deliberate repeat.
+    pub last_command: Mutex<Option<(String, Instant, crate::engine::Recogniser)>>,
     /// When each blocked process was first seen running unauthorised. Drives the
     /// grace period so a protected app is prompted for, not silently killed.
     pub pending_blocks: Mutex<std::collections::HashMap<String, Instant>>,
