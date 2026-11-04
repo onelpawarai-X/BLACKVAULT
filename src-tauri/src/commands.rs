@@ -1190,6 +1190,16 @@ pub fn answer_prompt(
                 "Protected item released at its prompt",
                 Some("re-seals on the next lock"),
             );
+            // Open it here rather than waiting for the window to ask. The token
+            // is consumed a few lines below, and the open that raised the prompt
+            // cannot be resumed, so this is the only chance to hand the item to
+            // its application. It opens behind the prompt window, which is
+            // playing its release animation on top.
+            if p.exists() {
+                if let Err(e) = platform::launcher::open_with_default(p) {
+                    log::warn!("could not open {path}: {e}");
+                }
+            }
         }
     }
     close_prompt(&state, Some(&token));
@@ -1204,40 +1214,6 @@ pub fn dismiss_prompt(state: St<'_>, token: String) -> BvResult<()> {
     Ok(())
 }
 
-/// Hand a protected item to its own application.
-///
-/// The open that raised the prompt cannot be resumed, so once the password is
-/// accepted the item is opened the way the user meant it to be — which is also
-/// the visible confirmation that the release worked.
-#[tauri::command]
-pub fn open_path(state: St<'_>, id: i64) -> BvResult<()> {
-    let items = state.db.list_protected_items()?;
-    let item = items.into_iter().find(|i| i.id == id).ok_or(BvError::NotFound)?;
-    let p = std::path::Path::new(&item.path);
-    if !p.exists() {
-        return Err(BvError::msg("the protected path no longer exists"));
-    }
-    platform::launcher::open_with_default(p)
-}
-
-/// Open the item that raised a prompt, once it has been released.
-#[tauri::command]
-pub fn open_prompt_path(state: St<'_>, token: String) -> BvResult<()> {
-    let target = live_prompt(&state, &token).map(|p| p.target);
-    match target {
-        Some(PromptTarget::Path { item_id, .. }) => {
-            let items = state.db.list_protected_items()?;
-            if let Some(item) = items.into_iter().find(|i| i.id == item_id) {
-                let p = std::path::Path::new(&item.path);
-                if p.exists() {
-                    platform::launcher::open_with_default(p)?;
-                }
-            }
-            Ok(())
-        }
-        _ => Err(BvError::msg("this prompt is not about a file or folder")),
-    }
-}
 
 // =============================================================== automation
 

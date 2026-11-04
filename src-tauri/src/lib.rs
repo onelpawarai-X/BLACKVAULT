@@ -85,8 +85,6 @@ pub fn run() {
             // authentication prompt (its own window)
             commands::answer_prompt,
             commands::dismiss_prompt,
-            commands::open_path,
-            commands::open_prompt_path,
             commands::set_passphrase,
             commands::set_pin,
             commands::clear_pin,

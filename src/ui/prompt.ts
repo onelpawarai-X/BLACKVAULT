@@ -201,9 +201,8 @@ export function renderPrompt(host: HTMLElement): void {
       window.setTimeout(() => card?.classList.remove("shake"), 480);
       return;
     }
-    // Accepted. Play the release ceremony, then hand the item to its own
-    // application so the user sees the thing they asked for.
-    if (info) void bridge.openPromptPath(info.token).catch(() => undefined);
+    // Accepted. The core has already released the item and handed it to its
+    // application, so all that is left here is the ceremony.
     celebrate(info?.name ?? "");
   }
 

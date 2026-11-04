@@ -164,11 +164,6 @@ export const answerPrompt = (token: string, pin?: string, phrase?: string) =>
 /** Abandon the open prompt; the protected item stays sealed. */
 export const dismissPrompt = (token: string) =>
   call<void>("dismiss_prompt", { token });
-/** Open the item that raised the prompt, after it has been released. */
-export const openPromptPath = (token: string) =>
-  call<void>("open_prompt_path", { token });
-/** Open a protected item with its own application. */
-export const openPath = (id: number) => call<void>("open_path", { id });
 
 // ============================ Event bus =================================
 
