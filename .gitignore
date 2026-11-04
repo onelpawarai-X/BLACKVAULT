@@ -32,3 +32,6 @@ logs/
 # Test artifacts
 coverage/
 .agent_tmp/
+
+# agent working memory
+.openhands/
