@@ -11,6 +11,8 @@
 
 import "../styles/prompt.css";
 
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
 import * as bridge from "../lib/bridge";
 import { el, mount, svgIcon, clear } from "../lib/dom";
 import { ICONS } from "../lib/icons";
@@ -60,7 +62,7 @@ export function renderPrompt(host: HTMLElement): void {
       };
       render();
     } else if (e.type === "promptClosed") {
-      window.close();
+      void closeSelf();
     }
   });
 
@@ -208,7 +210,7 @@ export function renderPrompt(host: HTMLElement): void {
   function deny(): void {
     if (!info) return;
     void bridge.dismissPrompt(info.token).catch(() => undefined);
-    window.close();
+    void closeSelf();
   }
 
   function celebrate(name: string): void {
@@ -233,12 +235,25 @@ export function renderPrompt(host: HTMLElement): void {
         name ? el("div", { class: "bv-grant-name" }, name) : null,
       ),
     );
-    window.setTimeout(() => window.close(), 1500);
+    window.setTimeout(() => void closeSelf(), 1500);
   }
 
   function shortPath(p: string): string {
     const parts = p.split(/[\\/]/).filter(Boolean);
     return parts.length <= 2 ? p : `…\\${parts.slice(-2).join("\\")}`;
+  }
+}
+
+/// Close this window through the Tauri API.
+///
+/// `window.close()` is a browser call and Tauri only honours it when the
+/// webview was created by a script; asking the window itself is the supported
+/// path and works whatever created it.
+async function closeSelf(): Promise<void> {
+  try {
+    await getCurrentWindow().close();
+  } catch {
+    window.close();
   }
 }
 
