@@ -42,8 +42,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-      - name: Test the core
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+      - name: Test the platform-independent core
+        run: ./scripts/pure-core-test.sh
       - name: Check the whole crate
         run: cargo check --manifest-path src-tauri/Cargo.toml
 
