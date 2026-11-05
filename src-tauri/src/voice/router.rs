@@ -8,6 +8,19 @@ use std::time::{Duration, Instant};
 
 use super::matcher::Match;
 
+/// Phrases that always run, even when the wake phrase is required.
+///
+/// Locking must never need a wake phrase: the owner says "lock this pc" and the
+/// screen is covered, in one breath. Unlocking is handled by the lock-screen
+/// branch above, which accepts it without a wake phrase too. Neither is a way
+/// around authentication — locking needs none, and unlocking still proves the
+/// passphrase and the second factor.
+pub const ALWAYS_READY_PHRASES: [&str; 2] = ["lock this pc", "unlock this pc"];
+
+fn is_always_ready(phrase: &str) -> bool {
+    ALWAYS_READY_PHRASES.contains(&phrase)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RouteKind {
     /// The wake phrase was heard; commands are armed for a short window.
@@ -115,7 +128,9 @@ impl Router {
         }
 
         // Unlocked: commands require the wake phrase when the user asked for it.
-        if wake_required && !self.armed(now) {
+        // The two lock phrases are exempt: "lock this pc" has to lock on its own
+        // words, so the owner never has to say anything else first.
+        if wake_required && !self.armed(now) && !is_always_ready(&m.phrase) {
             return ignore(m.score);
         }
         if m.score < self.command_threshold {
@@ -223,6 +238,28 @@ mod tests {
             locked.route(true, &m("next", "command", 0.9), true, now).kind,
             RouteKind::Ignore,
             "the microphone button must not release the lock"
+        );
+    }
+
+    #[test]
+    fn locking_never_needs_the_wake_phrase() {
+        // The owner says one phrase and the screen is covered. Making them say a
+        // wake word first would be a second step for the one command that has to
+        // be instant.
+        let mut r = Router::new();
+        let now = Instant::now();
+        let out = r.route(false, &m("lock this pc", "command", 0.9), true, now);
+        assert_eq!(out.kind, RouteKind::Command);
+    }
+
+    #[test]
+    fn the_wake_phrase_still_gates_ordinary_commands() {
+        let mut r = Router::new();
+        let now = Instant::now();
+        assert_eq!(
+            r.route(false, &m("next", "command", 0.9), true, now).kind,
+            RouteKind::Ignore,
+            "an ordinary command without the wake phrase is still ignored"
         );
     }
 }
