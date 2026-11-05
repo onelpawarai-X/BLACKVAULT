@@ -188,9 +188,39 @@ pub const SENSITIVE_TOOLS: &[&str] = &[
     "bv_release_path",
 ];
 
-/// Find a tool by name.
+/// The schema fingerprint stamped into every tool name.
+///
+/// The agent server caches a client tool's `parameters` **by name** for the life
+/// of its process. Reusing a sandbox whose process was started by an older build
+/// therefore rejects every new conversation with
+/// `Client tool '<name>' is already registered with a different parameters schema`
+/// — a 422 the user only ever sees as "nothing works". Since the name is part of
+/// the cached identity, changing this fingerprint changes the name, so a schema
+/// change can never collide with a stale cache entry.
+///
+/// **Bump this whenever any tool's parameters change.** Additive-only changes
+/// still count: the server compares the whole `parameters` object.
+pub const SCHEMA_VERSION: u32 = 1;
+
+/// The wire name for a catalogue tool: `bv_open_app` becomes `bv_open_app_v1`.
+pub fn wire_name(base: &str) -> String {
+    format!("{base}_v{SCHEMA_VERSION}")
+}
+
+/// Strip a schema-version suffix, so a name that came off the wire maps back to
+/// its catalogue entry.
+fn base_name(name: &str) -> &str {
+    name.rsplit_once("_v")
+        .filter(|(_, v)| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()))
+        .map(|(base, _)| base)
+        .unwrap_or(name)
+}
+
+/// Find a tool by name. Accepts both the catalogue name and its wire name, so
+/// the same lookup serves the UI, the catalogue text and an inbound call.
 pub fn find(name: &str) -> Option<&'static DesktopTool> {
-    DESKTOP_TOOLS.iter().find(|t| t.name == name)
+    let base = base_name(name);
+    DESKTOP_TOOLS.iter().find(|t| t.name == base)
 }
 
 pub fn is_desktop_tool(name: &str) -> bool {
@@ -198,14 +228,15 @@ pub fn is_desktop_tool(name: &str) -> bool {
 }
 
 pub fn is_sensitive(name: &str) -> bool {
-    SENSITIVE_TOOLS.contains(&name)
+    let base = base_name(name);
+    SENSITIVE_TOOLS.contains(&base)
 }
 
-/// The catalogue as the cloud's `ClientToolSpec` shape.
+/// The catalogue as the cloud's `ClientToolSpec` shape, with wire names.
 pub fn specs() -> Vec<ClientToolSpec> {
     DESKTOP_TOOLS
         .iter()
-        .map(|t| ClientToolSpec::new(t.name, t.description, t.params))
+        .map(|t| ClientToolSpec::new(&wire_name(t.name), t.description, t.params))
         .collect()
 }
 
@@ -218,7 +249,7 @@ pub fn schemas() -> Value {
                 json!({
                     "type": "function",
                     "function": {
-                        "name": t.name,
+                        "name": wire_name(t.name),
                         "description": t.description,
                         "parameters": ClientToolSpec::new(t.name, t.description, t.params).parameters,
                     }
@@ -235,7 +266,7 @@ pub fn tool_list() -> Value {
             .iter()
             .map(|t| {
                 json!({
-                    "name": t.name,
+                    "name": wire_name(t.name),
                     "description": t.description,
                     "sensitive": is_sensitive(t.name),
                     "params": t.params.iter().map(|(name, kind, required)| json!({
@@ -252,7 +283,7 @@ pub fn tool_list() -> Value {
 /// This is written out rather than left implicit because an agent that does not
 /// know it has a terminal will describe a command instead of running it.
 pub fn catalogue_text() -> String {
-    let names: Vec<&str> = DESKTOP_TOOLS.iter().map(|t| t.name).collect();
+    let names: Vec<String> = DESKTOP_TOOLS.iter().map(|t| wire_name(t.name)).collect();
     format!(
         "You are running inside BLACKVAULT on the user's own Windows desktop, not in a sandbox. \
          You have real control of this machine through these tools: {}. \
@@ -357,6 +388,9 @@ fn optional_bool(args: &Value, key: &str) -> bool {
 /// plan that can run.
 pub fn plan_tool(name: &str, args: &Value) -> BvResult<ToolPlan> {
     let args = if args.is_null() { &Value::Null } else { args };
+    // A call arrives with the wire name (`bv_open_app_v1`); match on the
+    // catalogue name so the plan is version-independent.
+    let name = base_name(name);
     let plan = match name {
         "bv_open_app" => ToolPlan::LaunchApp(required_str(args, "app", name)?),
         "bv_close_app" => ToolPlan::CloseApp(required_str(args, "app", name)?),
@@ -563,6 +597,45 @@ mod tests {
     }
 
     #[test]
+    fn every_wire_name_carries_the_schema_version() {
+        // The agent server caches a client tool's parameters by name for the life
+        // of its process. A reused sandbox whose process predates a schema change
+        // then rejects every conversation with a 422. Stamping the version into
+        // the name means a schema change also changes the name, so a stale cache
+        // entry can never be hit.
+        let suffix = format!("_v{}", SCHEMA_VERSION);
+        for spec in specs() {
+            assert!(
+                spec.name.ends_with(&suffix),
+                "{} must carry the schema version so a reused sandbox never collides",
+                spec.name
+            );
+        }
+        let schemas = schemas();
+        for entry in schemas.as_array().unwrap() {
+            let name = entry["function"]["name"].as_str().unwrap();
+            assert!(name.ends_with(&suffix), "{name} is missing the schema version");
+        }
+    }
+
+    #[test]
+    fn a_versioned_call_maps_back_to_its_tool() {
+        // A call arrives with the wire name; the plan and the sensitivity check
+        // must still resolve it, or a bumped version silently disables the tool.
+        let call = wire_name("bv_read_file");
+        assert_eq!(call, "bv_read_file_v1");
+        assert!(is_desktop_tool(&call));
+        assert!(is_sensitive(&call), "a sensitive tool must stay sensitive when versioned");
+        assert!(matches!(
+            plan_tool(&call, &json!({ "path": "C:/x" })).unwrap(),
+            ToolPlan::ReadFile(_)
+        ));
+        // The bare catalogue name keeps working too.
+        assert!(is_desktop_tool("bv_read_file"));
+        assert!(!is_desktop_tool("bv_read_file_v"));
+    }
+
+    #[test]
     fn every_tool_name_is_namespaced_to_avoid_a_server_collision() {
         // The agent server already ships tools called `read_file`, `write_file`,
         // `list_dir` and others. A client tool that reuses one of those names is
@@ -742,7 +815,11 @@ mod tests {
     fn the_catalogue_text_names_every_tool() {
         let text = catalogue_text();
         for t in DESKTOP_TOOLS {
-            assert!(text.contains(t.name), "catalogue text omits {}", t.name);
+            assert!(
+                text.contains(&wire_name(t.name)),
+                "catalogue text omits {}",
+                wire_name(t.name)
+            );
         }
         assert!(text.contains("BLACKVAULT"));
     }
