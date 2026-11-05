@@ -1235,6 +1235,22 @@ pub fn run_automation(state: St<'_>, action: String, payload: Option<String>) ->
 /// the passphrase check and the second factor.
 #[tauri::command]
 pub fn listen_once(state: St<'_>) -> VoiceStatus {
+    // The mic button must always open the microphone. If the always-on engine
+    // is off — because the user stopped it, or it never started — arming the
+    // router alone would leave the button doing nothing, which reads as "the
+    // mic is broken". Bring the capture and the word recogniser up first, then
+    // arm. Starting the engine here does not widen what can run: an utterance
+    // still has to match a command, and unlocking still needs the passphrase
+    // and the second factor.
+    if !state.voice.is_running() {
+        let settings = state.settings();
+        state.voice.set_wake_phrase(Some(settings.wake_phrase.clone()));
+        let st = state.voice.start();
+        state.emit(CoreEvent::Voice(st));
+        state.log_event("engine_start", "info", "Voice engine started from mic button", None);
+    }
+    crate::engine::sync_stt(&state);
+
     state.router.lock().arm_once(Duration::from_secs(12));
     state.emit(CoreEvent::Voice(state.voice.status()));
     state.voice.status()

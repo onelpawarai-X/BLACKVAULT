@@ -104,6 +104,11 @@ pub struct Settings {
     /// Speak the agent's answers aloud as they arrive.
     #[serde(default)]
     pub agent_speak: bool,
+    /// The user's standing instructions for the agent, appended to its brief on
+    /// every conversation. This is how the owner teaches their own agent — the
+    /// text never leaves the machine except as part of the agent's prompt.
+    #[serde(default)]
+    pub agent_instructions: String,
 }
 
 fn default_stt_endpoint() -> String {
@@ -168,6 +173,7 @@ impl Default for Settings {
             cloud_model: None,
             agent_keepalive: true,
             agent_speak: false,
+            agent_instructions: String::new(),
         }
     }
 }

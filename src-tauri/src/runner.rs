@@ -468,7 +468,10 @@ impl AgentRuntime {
         let request = StartRequest {
             title: bridge::title_from(prompt),
             prompt: prompt.to_string(),
-            system_message_suffix: Some(bridge::system_suffix(&agent::catalogue_text())),
+            system_message_suffix: Some(bridge::system_suffix_with(
+                &agent::catalogue_text(),
+                &self.state.settings().agent_instructions,
+            )),
             sandbox_id: reuse.map(str::to_string),
             model: Some(
                 self.state

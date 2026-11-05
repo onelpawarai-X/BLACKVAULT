@@ -62,6 +62,13 @@ export const agentPane: Pane = {
     }) as HTMLButtonElement;
     micBtn.appendChild(svgIcon(ICONS.mic, 18));
 
+    const stopBtn = el("button", {
+      class: "bv-agent-stop",
+      type: "button",
+      title: "থামান",
+    }) as HTMLButtonElement;
+    stopBtn.appendChild(svgIcon(ICONS.stop, 15));
+
     const banner = el("div", { class: "bv-agent-banner" });
     const stageLine = el("div", { class: "bv-agent-stage" });
     const keyCard = el("div", { class: "bv-agent-key" });
@@ -97,6 +104,7 @@ export const agentPane: Pane = {
     );
     composer.appendChild(input);
     composer.appendChild(micBtn);
+    composer.appendChild(stopBtn);
     composer.appendChild(sendBtn);
 
     // ------------------------------------------------------------ actions
@@ -131,6 +139,14 @@ export const agentPane: Pane = {
     };
 
     sendBtn.addEventListener("click", () => void send());
+    stopBtn.addEventListener("click", async () => {
+      stopBtn.disabled = true;
+      try {
+        await bridge.agentInterrupt();
+      } catch (e) {
+        ctx.toast("থামানো যায়নি", String(e), "warn");
+      }
+    });
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
@@ -396,6 +412,21 @@ export const agentPane: Pane = {
       if (m.kind === "observation") {
         card.classList.add(m.ok ? "is-ok" : "is-fail");
       }
+      // A finished answer can be taken away in one click; the live card cannot,
+      // it is still changing.
+      if (m.kind === "message" && m.role === "assistant" && text) {
+        const copy = el("button", { class: "bv-msg-copy", type: "button", title: "কপি" });
+        copy.appendChild(svgIcon(ICONS.copy, 13));
+        copy.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(text);
+            copy.classList.add("is-done");
+          } catch {
+            /* the clipboard can be refused; the button simply does nothing */
+          }
+        });
+        head.appendChild(copy);
+      }
       return card;
     }
 
@@ -455,6 +486,10 @@ export const agentPane: Pane = {
     function renderComposer(): void {
       sendBtn.disabled = sending;
       sendBtn.classList.toggle("is-busy", sending);
+      // Stop is offered exactly while the agent is working on a turn.
+      const busy = Boolean(state?.busy);
+      stopBtn.classList.toggle("is-on", busy);
+      stopBtn.disabled = !busy;
     }
 
     function renderStage(): void {

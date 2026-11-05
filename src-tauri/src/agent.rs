@@ -54,120 +54,120 @@ const fn tool(
 /// The whole catalogue.
 pub const DESKTOP_TOOLS: &[DesktopTool] = &[
     tool(
-        "open_app",
+        "bv_open_app",
         "Open an application on this computer by name (e.g. Chrome, Notepad, Visual Studio Code). \
-         Use list_apps first if you are unsure of the name.",
+         Use bv_list_apps first if you are unsure of the name.",
         &[("app", "string", true)],
     ),
     tool(
-        "close_app",
+        "bv_close_app",
         "Close a running application on this computer by name.",
         &[("app", "string", true)],
     ),
     tool(
-        "list_apps",
+        "bv_list_apps",
         "List the applications installed on this computer that BLACKVAULT can launch.",
         &[],
     ),
     tool(
-        "open_path",
+        "bv_open_path",
         "Open a file or folder on this computer with its default application.",
         &[("path", "string", true)],
     ),
     tool(
-        "run_command",
+        "bv_run_command",
         "Run a shell command on this computer and return its output and exit code. \
          Use this for anything the other tools do not cover.",
         &[("command", "string", true)],
     ),
     tool(
-        "read_file",
+        "bv_read_file",
         "Read a text file on this computer. Returns the contents, truncated if very large.",
         &[("path", "string", true)],
     ),
     tool(
-        "write_file",
+        "bv_write_file",
         "Create or overwrite a text file on this computer.",
         &[("path", "string", true), ("content", "string", true)],
     ),
     tool(
-        "list_dir",
+        "bv_list_dir",
         "List the entries of a folder on this computer.",
         &[("path", "string", true)],
     ),
     tool(
-        "press_keys",
+        "bv_press_keys",
         "Press a key or key combination, e.g. \"ctrl+s\", \"alt+tab\", \"enter\", \"media_next\".",
         &[("keys", "string", true)],
     ),
     tool(
-        "type_text",
+        "bv_type_text",
         "Type text into whatever window currently has focus.",
         &[("text", "string", true)],
     ),
     tool(
-        "click",
+        "bv_click",
         "Click the mouse. Give x and y to click a point, or omit them to click where the pointer is.",
         &[("x", "integer", false), ("y", "integer", false)],
     ),
     tool(
-        "scroll",
+        "bv_scroll",
         "Scroll the focused window. direction is \"up\", \"down\", \"top\" or \"bottom\".",
         &[("direction", "string", true), ("amount", "integer", false)],
     ),
     tool(
-        "screenshot",
+        "bv_screenshot",
         "Take a screenshot of this computer's screen and return the file path.",
         &[],
     ),
     tool(
-        "read_screen",
+        "bv_read_screen",
         "Describe what is currently on screen: the active window title and a screenshot path.",
         &[],
     ),
     tool(
-        "lock_pc",
+        "bv_lock_pc",
         "Lock this computer with BLACKVAULT's full-screen privacy lock.",
         &[],
     ),
     tool(
-        "unlock_pc",
+        "bv_unlock_pc",
         "Release BLACKVAULT's lock. Requires the user to authenticate.",
         &[],
     ),
     tool(
-        "protect_path",
+        "bv_protect_path",
         "Protect a file or folder so it needs authentication to open. \
          Set folder to true for a directory.",
         &[("path", "string", true), ("folder", "boolean", false)],
     ),
     tool(
-        "release_path",
+        "bv_release_path",
         "Remove protection from a file or folder. Requires the user to authenticate.",
         &[("path", "string", true)],
     ),
     tool(
-        "list_protected",
+        "bv_list_protected",
         "List the files and folders that are currently protected.",
         &[],
     ),
     tool(
-        "speak",
+        "bv_speak",
         "Speak text aloud through BLACKVAULT's voice.",
         &[("text", "string", true)],
     ),
     tool(
-        "system_info",
+        "bv_system_info",
         "Report this computer's platform, host name, user name and BLACKVAULT version.",
         &[],
     ),
     tool(
-        "notify",
+        "bv_notify",
         "Show a desktop notification.",
         &[("title", "string", true), ("body", "string", true)],
     ),
     tool(
-        "window_action",
+        "bv_window_action",
         "Arrange windows. action is \"minimize_all\", \"show_desktop\" or \"switch\".",
         &[("action", "string", true)],
     ),
@@ -180,12 +180,12 @@ pub const DESKTOP_TOOLS: &[DesktopTool] = &[
 /// could read something private, change something important, or undo a
 /// protection the user put in place.
 pub const SENSITIVE_TOOLS: &[&str] = &[
-    "run_command",
-    "read_file",
-    "write_file",
-    "list_dir",
-    "unlock_pc",
-    "release_path",
+    "bv_run_command",
+    "bv_read_file",
+    "bv_write_file",
+    "bv_list_dir",
+    "bv_unlock_pc",
+    "bv_release_path",
 ];
 
 /// Find a tool by name.
@@ -302,29 +302,29 @@ impl ToolPlan {
     /// The tool name this plan came from.
     pub fn tool_name(&self) -> &'static str {
         match self {
-            ToolPlan::LaunchApp(_) => "open_app",
-            ToolPlan::CloseApp(_) => "close_app",
-            ToolPlan::ListApps => "list_apps",
-            ToolPlan::OpenPath(_) => "open_path",
-            ToolPlan::RunCommand(_) => "run_command",
-            ToolPlan::ReadFile(_) => "read_file",
-            ToolPlan::WriteFile { .. } => "write_file",
-            ToolPlan::ListDir(_) => "list_dir",
-            ToolPlan::PressKeys(_) => "press_keys",
-            ToolPlan::TypeText(_) => "type_text",
-            ToolPlan::Click { .. } => "click",
-            ToolPlan::Scroll { .. } => "scroll",
-            ToolPlan::Screenshot => "screenshot",
-            ToolPlan::ReadScreen => "read_screen",
-            ToolPlan::Lock => "lock_pc",
-            ToolPlan::Unlock => "unlock_pc",
-            ToolPlan::ProtectPath { .. } => "protect_path",
-            ToolPlan::ReleasePath(_) => "release_path",
-            ToolPlan::ListProtected => "list_protected",
-            ToolPlan::Speak(_) => "speak",
-            ToolPlan::SystemInfo => "system_info",
-            ToolPlan::Notify { .. } => "notify",
-            ToolPlan::WindowAction(_) => "window_action",
+            ToolPlan::LaunchApp(_) => "bv_open_app",
+            ToolPlan::CloseApp(_) => "bv_close_app",
+            ToolPlan::ListApps => "bv_list_apps",
+            ToolPlan::OpenPath(_) => "bv_open_path",
+            ToolPlan::RunCommand(_) => "bv_run_command",
+            ToolPlan::ReadFile(_) => "bv_read_file",
+            ToolPlan::WriteFile { .. } => "bv_write_file",
+            ToolPlan::ListDir(_) => "bv_list_dir",
+            ToolPlan::PressKeys(_) => "bv_press_keys",
+            ToolPlan::TypeText(_) => "bv_type_text",
+            ToolPlan::Click { .. } => "bv_click",
+            ToolPlan::Scroll { .. } => "bv_scroll",
+            ToolPlan::Screenshot => "bv_screenshot",
+            ToolPlan::ReadScreen => "bv_read_screen",
+            ToolPlan::Lock => "bv_lock_pc",
+            ToolPlan::Unlock => "bv_unlock_pc",
+            ToolPlan::ProtectPath { .. } => "bv_protect_path",
+            ToolPlan::ReleasePath(_) => "bv_release_path",
+            ToolPlan::ListProtected => "bv_list_protected",
+            ToolPlan::Speak(_) => "bv_speak",
+            ToolPlan::SystemInfo => "bv_system_info",
+            ToolPlan::Notify { .. } => "bv_notify",
+            ToolPlan::WindowAction(_) => "bv_window_action",
         }
     }
 }
@@ -358,13 +358,13 @@ fn optional_bool(args: &Value, key: &str) -> bool {
 pub fn plan_tool(name: &str, args: &Value) -> BvResult<ToolPlan> {
     let args = if args.is_null() { &Value::Null } else { args };
     let plan = match name {
-        "open_app" => ToolPlan::LaunchApp(required_str(args, "app", name)?),
-        "close_app" => ToolPlan::CloseApp(required_str(args, "app", name)?),
-        "list_apps" => ToolPlan::ListApps,
-        "open_path" => ToolPlan::OpenPath(required_str(args, "path", name)?),
-        "run_command" => ToolPlan::RunCommand(required_str(args, "command", name)?),
-        "read_file" => ToolPlan::ReadFile(required_str(args, "path", name)?),
-        "write_file" => ToolPlan::WriteFile {
+        "bv_open_app" => ToolPlan::LaunchApp(required_str(args, "app", name)?),
+        "bv_close_app" => ToolPlan::CloseApp(required_str(args, "app", name)?),
+        "bv_list_apps" => ToolPlan::ListApps,
+        "bv_open_path" => ToolPlan::OpenPath(required_str(args, "path", name)?),
+        "bv_run_command" => ToolPlan::RunCommand(required_str(args, "command", name)?),
+        "bv_read_file" => ToolPlan::ReadFile(required_str(args, "path", name)?),
+        "bv_write_file" => ToolPlan::WriteFile {
             path: required_str(args, "path", name)?,
             content: args
                 .get("content")
@@ -372,30 +372,30 @@ pub fn plan_tool(name: &str, args: &Value) -> BvResult<ToolPlan> {
                 .unwrap_or_default()
                 .to_string(),
         },
-        "list_dir" => ToolPlan::ListDir(required_str(args, "path", name)?),
-        "press_keys" => ToolPlan::PressKeys(required_str(args, "keys", name)?),
-        "type_text" => ToolPlan::TypeText(required_str(args, "text", name)?),
-        "click" => ToolPlan::Click {
+        "bv_list_dir" => ToolPlan::ListDir(required_str(args, "path", name)?),
+        "bv_press_keys" => ToolPlan::PressKeys(required_str(args, "keys", name)?),
+        "bv_type_text" => ToolPlan::TypeText(required_str(args, "text", name)?),
+        "bv_click" => ToolPlan::Click {
             x: optional_i32(args, "x"),
             y: optional_i32(args, "y"),
         },
-        "scroll" => ToolPlan::Scroll {
+        "bv_scroll" => ToolPlan::Scroll {
             direction: required_str(args, "direction", name)?,
             amount: optional_i32(args, "amount").unwrap_or(3),
         },
-        "screenshot" => ToolPlan::Screenshot,
-        "read_screen" => ToolPlan::ReadScreen,
-        "lock_pc" => ToolPlan::Lock,
-        "unlock_pc" => ToolPlan::Unlock,
-        "protect_path" => ToolPlan::ProtectPath {
+        "bv_screenshot" => ToolPlan::Screenshot,
+        "bv_read_screen" => ToolPlan::ReadScreen,
+        "bv_lock_pc" => ToolPlan::Lock,
+        "bv_unlock_pc" => ToolPlan::Unlock,
+        "bv_protect_path" => ToolPlan::ProtectPath {
             path: required_str(args, "path", name)?,
             folder: optional_bool(args, "folder"),
         },
-        "release_path" => ToolPlan::ReleasePath(required_str(args, "path", name)?),
-        "list_protected" => ToolPlan::ListProtected,
-        "speak" => ToolPlan::Speak(required_str(args, "text", name)?),
-        "system_info" => ToolPlan::SystemInfo,
-        "notify" => ToolPlan::Notify {
+        "bv_release_path" => ToolPlan::ReleasePath(required_str(args, "path", name)?),
+        "bv_list_protected" => ToolPlan::ListProtected,
+        "bv_speak" => ToolPlan::Speak(required_str(args, "text", name)?),
+        "bv_system_info" => ToolPlan::SystemInfo,
+        "bv_notify" => ToolPlan::Notify {
             title: required_str(args, "title", name)?,
             body: args
                 .get("body")
@@ -403,7 +403,7 @@ pub fn plan_tool(name: &str, args: &Value) -> BvResult<ToolPlan> {
                 .unwrap_or_default()
                 .to_string(),
         },
-        "window_action" => ToolPlan::WindowAction(required_str(args, "action", name)?),
+        "bv_window_action" => ToolPlan::WindowAction(required_str(args, "action", name)?),
         other => {
             return Err(BvError::msg(format!(
                 "unknown tool \"{other}\" — BLACKVAULT has no such capability"
@@ -563,19 +563,41 @@ mod tests {
     }
 
     #[test]
+    fn every_tool_name_is_namespaced_to_avoid_a_server_collision() {
+        // The agent server already ships tools called `read_file`, `write_file`,
+        // `list_dir` and others. A client tool that reuses one of those names is
+        // rejected with a 422 and the *whole conversation* fails to start — the
+        // user sees "cannot create a conversation" with no clue why. Keeping a
+        // private namespace on every name makes that impossible, including for
+        // names the server adds in future.
+        for t in DESKTOP_TOOLS {
+            assert!(
+                t.name.starts_with("bv_"),
+                "tool {} is not namespaced; it can collide with a server tool",
+                t.name
+            );
+        }
+        let mut names: Vec<&str> = DESKTOP_TOOLS.iter().map(|t| t.name).collect();
+        names.sort_unstable();
+        let before = names.len();
+        names.dedup();
+        assert_eq!(before, names.len(), "two tools share a name");
+    }
+
+    #[test]
     fn sensitive_tools_are_all_real_tools() {
         for name in SENSITIVE_TOOLS {
             assert!(is_desktop_tool(name), "{name} is not in the catalogue");
         }
-        assert!(is_sensitive("run_command"));
-        assert!(!is_sensitive("open_app"));
+        assert!(is_sensitive("bv_run_command"));
+        assert!(!is_sensitive("bv_open_app"));
     }
 
     #[test]
     fn a_missing_required_argument_is_refused() {
-        let error = plan_tool("open_app", &json!({})).unwrap_err().to_string();
+        let error = plan_tool("bv_open_app", &json!({})).unwrap_err().to_string();
         assert!(error.contains("app"), "error should name the missing field: {error}");
-        assert!(plan_tool("run_command", &json!({ "command": "   " })).is_err());
+        assert!(plan_tool("bv_run_command", &json!({ "command": "   " })).is_err());
     }
 
     #[test]
@@ -588,26 +610,26 @@ mod tests {
     #[test]
     fn optional_arguments_default_sensibly() {
         assert_eq!(
-            plan_tool("click", &json!({})).unwrap(),
+            plan_tool("bv_click", &json!({})).unwrap(),
             ToolPlan::Click { x: None, y: None }
         );
         assert_eq!(
-            plan_tool("click", &json!({ "x": "40", "y": 90 })).unwrap(),
+            plan_tool("bv_click", &json!({ "x": "40", "y": 90 })).unwrap(),
             ToolPlan::Click { x: Some(40), y: Some(90) }
         );
         assert_eq!(
-            plan_tool("scroll", &json!({ "direction": "down" })).unwrap(),
+            plan_tool("bv_scroll", &json!({ "direction": "down" })).unwrap(),
             ToolPlan::Scroll { direction: "down".into(), amount: 3 }
         );
         assert_eq!(
-            plan_tool("protect_path", &json!({ "path": "C:/x" })).unwrap(),
+            plan_tool("bv_protect_path", &json!({ "path": "C:/x" })).unwrap(),
             ToolPlan::ProtectPath { path: "C:/x".into(), folder: false }
         );
     }
 
     #[test]
     fn a_write_with_no_content_writes_an_empty_file() {
-        let plan = plan_tool("write_file", &json!({ "path": "C:/note.txt" })).unwrap();
+        let plan = plan_tool("bv_write_file", &json!({ "path": "C:/note.txt" })).unwrap();
         assert_eq!(
             plan,
             ToolPlan::WriteFile { path: "C:/note.txt".into(), content: String::new() }
@@ -616,7 +638,7 @@ mod tests {
 
     #[test]
     fn whitespace_around_a_path_is_trimmed() {
-        let plan = plan_tool("open_path", &json!({ "path": "  C:/x  " })).unwrap();
+        let plan = plan_tool("bv_open_path", &json!({ "path": "  C:/x  " })).unwrap();
         assert_eq!(plan, ToolPlan::OpenPath("C:/x".into()));
     }
 
@@ -680,7 +702,7 @@ mod tests {
     #[test]
     fn executing_a_plan_calls_the_host_once_with_the_right_arguments() {
         let host = Recorder::new();
-        let plan = plan_tool("open_app", &json!({ "app": "Notepad" })).unwrap();
+        let plan = plan_tool("bv_open_app", &json!({ "app": "Notepad" })).unwrap();
         let result = execute(&host, &plan).unwrap();
         assert_eq!(result["ok"], true);
         assert_eq!(host.seen.borrow().as_slice(), ["launch:Notepad"]);
@@ -689,7 +711,7 @@ mod tests {
     #[test]
     fn a_command_result_carries_the_output_through() {
         let host = Recorder::new();
-        let plan = plan_tool("run_command", &json!({ "command": "echo hi" })).unwrap();
+        let plan = plan_tool("bv_run_command", &json!({ "command": "echo hi" })).unwrap();
         let result = execute(&host, &plan).unwrap();
         assert_eq!(result["stdout"], "done");
         assert_eq!(result["exitCode"], 0);
@@ -698,7 +720,7 @@ mod tests {
     #[test]
     fn a_host_failure_becomes_an_error_the_agent_can_read() {
         let host = Recorder { seen: RefCell::new(Vec::new()), fail: true };
-        let plan = plan_tool("screenshot", &json!({})).unwrap();
+        let plan = plan_tool("bv_screenshot", &json!({})).unwrap();
         assert!(execute(&host, &plan).is_err());
         assert_eq!(refusal("no screen").get("ok"), Some(&Value::Bool(false)));
     }
