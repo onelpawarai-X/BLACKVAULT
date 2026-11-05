@@ -86,6 +86,24 @@ pub struct Settings {
     /// as well, which is the strongest seal Windows offers but leaves the user
     /// with nothing but "access is denied" and no way to be asked.
     pub file_lock_mode: String,
+
+    /// Let the cloud agent drive this computer. When off, the agent still works
+    /// in its own sandbox but is not offered the desktop tools.
+    #[serde(default = "t")]
+    pub agent_enabled: bool,
+    /// Ask the user to approve a sensitive tool call (a command, a file read,
+    /// a protection release) instead of letting the agent run it directly.
+    #[serde(default = "t")]
+    pub agent_confirm_sensitive: bool,
+    /// The model the agent uses. `None` means the built-in default.
+    #[serde(default)]
+    pub cloud_model: Option<String>,
+    /// Keep recently used sandboxes awake so the next message is instant.
+    #[serde(default = "t")]
+    pub agent_keepalive: bool,
+    /// Speak the agent's answers aloud as they arrive.
+    #[serde(default)]
+    pub agent_speak: bool,
 }
 
 fn default_stt_endpoint() -> String {
@@ -145,6 +163,11 @@ impl Default for Settings {
             file_guard_enabled: true,
             offline_recognition: false,
             file_lock_mode: "prompt".into(),
+            agent_enabled: true,
+            agent_confirm_sensitive: true,
+            cloud_model: None,
+            agent_keepalive: true,
+            agent_speak: false,
         }
     }
 }
@@ -171,6 +194,10 @@ impl Settings {
         self.app_lock_grace_secs = self.app_lock_grace_secs.clamp(5, 300);
         if self.file_lock_mode != "hard" {
             self.file_lock_mode = "prompt".into();
+        }
+        if let Some(model) = self.cloud_model.as_mut() {
+            let trimmed = model.trim().to_string();
+            self.cloud_model = if trimmed.is_empty() { None } else { Some(trimmed) };
         }
         match self.stt_language.trim().to_ascii_lowercase().as_str() {
             "bn" | "bn-bd" | "bengali" => self.stt_language = "bn".into(),

@@ -5,6 +5,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  AgentEvent,
+  AgentMessage,
+  AgentState,
+  AgentTool,
+  AgentConversation,
   AuthResult,
   DeviceScanResult,
   EngineStatus,
@@ -202,7 +207,15 @@ export type CoreEvent =
   | { type: "promptClosed"; payload: { token: string } }
   | { type: "unlocked"; payload: { token: string } }
   | { type: "settings"; payload: Settings }
-  | { type: "toast"; payload: { title: string; body: string; severity: string } };
+  | { type: "toast"; payload: { title: string; body: string; severity: string } }
+  | { type: "agent"; payload: AgentState }
+  | { type: "agentEvent"; payload: { localId: string; event: AgentEvent } }
+  | {
+      type: "agentToolChallenge";
+      payload: { localId: string; tool: string; summary: string; token: string };
+    }
+  | { type: "agentStatus"; payload: { localId: string; status: string } }
+  | { type: "agentSpeak"; payload: { text: string } };
 
 const TOPIC = "blackvault://event";
 
@@ -223,3 +236,22 @@ export function onCoreEvent(handler: (e: CoreEvent) => void): () => void {
 export const EVENTS = {
   core: TOPIC,
 } as const;
+
+// ============================ Desktop agent ==============================
+
+export const agentStatus = () => call<AgentState>("agent_status");
+export const agentHasKey = () => call<boolean>("agent_has_key");
+export const agentSetKey = (key: string) => call<string>("agent_set_key", { key });
+export const agentClearKey = () => call<void>("agent_clear_key");
+export const agentConversations = () => call<AgentConversation[]>("agent_conversations");
+export const agentHistory = (localId: string, limit?: number) =>
+  call<AgentMessage[]>("agent_history", { localId, limit: limit ?? null });
+export const agentSend = (localId: string, text: string) =>
+  call<void>("agent_send", { localId, text });
+export const agentInterrupt = () => call<void>("agent_interrupt");
+export const agentForget = (localId: string) => call<void>("agent_forget", { localId });
+export const agentPending = () =>
+  call<[string, string, string] | null>("agent_pending");
+export const agentAnswer = (token: string, allow: boolean) =>
+  call<void>("agent_answer", { token, allow });
+export const agentTools = () => call<AgentTool[]>("agent_tools");

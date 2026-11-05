@@ -10,7 +10,11 @@
 //!   `commands`  — the `#[tauri::command]` surface (1:1 with `src/lib/bridge.ts`)
 //!   `engine`    — the background threads: voice routing and the app guard
 
+mod agent;
+mod agent_cmds;
 mod auth;
+mod bridge;
+mod cloud;
 mod crypto;
 mod db;
 mod dsp;
@@ -23,6 +27,7 @@ mod voice;
 
 mod commands;
 mod engine;
+mod runner;
 
 use tauri::Manager;
 
@@ -127,6 +132,19 @@ pub fn run() {
             commands::set_autostart,
             commands::open_log_folder,
             commands::factory_reset,
+            // desktop agent
+            agent_cmds::agent_status,
+            agent_cmds::agent_set_key,
+            agent_cmds::agent_clear_key,
+            agent_cmds::agent_has_key,
+            agent_cmds::agent_conversations,
+            agent_cmds::agent_history,
+            agent_cmds::agent_send,
+            agent_cmds::agent_interrupt,
+            agent_cmds::agent_forget,
+            agent_cmds::agent_pending,
+            agent_cmds::agent_answer,
+            agent_cmds::agent_tools,
         ])
         .setup(|app| {
             state::on_setup(app);

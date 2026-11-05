@@ -359,6 +359,18 @@ fn on_text(state: &Arc<AppState>, source: Recogniser, text: &str) {
         return;
     }
 
+    // A request to the agent is free-form: the words after the prefix are the
+    // whole point, so they cannot live in the command table the way a fixed
+    // phrase can. The same wake-phrase rule applies as for any other command.
+    if let Some(prompt) = crate::bridge::agent_prompt(&heard) {
+        if !settings.require_wake_for_commands || state.router.lock().armed(Instant::now()) {
+            state.router.lock().disarm();
+            state.voice.note_command(&heard);
+            run_action(state, "agent_ask", Some(&prompt)).ok();
+            return;
+        }
+    }
+
     let commands = match state.db.list_commands() {
         Ok(c) => c,
         Err(_) => return,
@@ -622,6 +634,37 @@ pub fn run_action(
         "open_folder" => {
             let path = payload.unwrap_or("");
             p::launcher::launch("explorer.exe", Some(path), None)
+        }
+        // Hand what was said to the desktop agent. The turn runs in the
+        // background and answers as events, so a long job never blocks the
+        // voice loop that heard it.
+        "agent_ask" | "agent_go" => {
+            let prompt = payload.unwrap_or("").trim().to_string();
+            if prompt.is_empty() {
+                return Err(crate::error::BvError::msg("agent: nothing to send"));
+            }
+            let Some(runtime) = state.agent.lock().clone() else {
+                return Err(crate::error::BvError::msg("agent: not started yet"));
+            };
+            if !runtime.has_key() {
+                return Err(crate::error::BvError::msg(
+                    "agent: add a cloud key in Settings first",
+                ));
+            }
+            // Speak to the chat the user is looking at, or the last one used.
+            let local_id = runtime
+                .snapshot()
+                .active_local_id
+                .unwrap_or_else(|| "voice".to_string());
+            runtime.start_turn(local_id, prompt);
+            Ok(())
+        }
+        "agent_stop" => {
+            let Some(runtime) = state.agent.lock().clone() else {
+                return Err(crate::error::BvError::msg("agent: not started yet"));
+            };
+            runtime.interrupt();
+            Ok(())
         }
         other => p::automation::run_action(other, payload),
     }

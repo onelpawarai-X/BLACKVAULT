@@ -44,10 +44,14 @@ zeroize = { version = "1", features = ["derive"] }
 rustfft = "6"
 num-complex = "0.4"
 ureq = "2"
+tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 TOML
 
 cat > "$work/src/lib.rs" <<'RS'
+mod agent;
 mod auth;
+mod bridge;
+mod cloud;
 mod crypto;
 mod db;
 mod dsp;
@@ -78,7 +82,7 @@ pub mod stt;
 RS
 
 # Modules shared verbatim with the real crate.
-for f in auth.rs crypto.rs db.rs dsp.rs error.rs models.rs settings.rs \
+for f in agent.rs auth.rs bridge.rs cloud.rs crypto.rs db.rs dsp.rs error.rs models.rs settings.rs \
          voice/matcher.rs voice/router.rs voice/vad.rs \
          platform/applock.rs platform/automation.rs platform/fileguard.rs platform/fileprot.rs \
          platform/hello.rs platform/launcher.rs platform/lock.rs platform/service.rs \

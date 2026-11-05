@@ -209,6 +209,16 @@ export interface Settings {
   appLockGraceSecs: number;
   /** Ask for a password when a protected item is opened. */
   fileGuardEnabled: boolean;
+  /** Let the cloud agent drive this computer. */
+  agentEnabled: boolean;
+  /** Ask before a sensitive tool runs (a command, a file read, a release). */
+  agentConfirmSensitive: boolean;
+  /** The model the agent uses. `null` means the built-in default. */
+  cloudModel: string | null;
+  /** Keep recently used sandboxes awake for an instant next message. */
+  agentKeepalive: boolean;
+  /** Speak the agent's answers aloud. */
+  agentSpeak: boolean;
 }
 
 export interface VoiceIdentity {
@@ -242,4 +252,54 @@ export interface AutomationRequest {
 export interface PatternResult {
   ok: boolean;
   message: string;
+}
+
+// ============================ Desktop agent ==============================
+
+/** The agent's live state, mirrored from the Rust runner. */
+export interface AgentState {
+  busy: boolean;
+  phase: "preparing" | "working" | "awaiting_tool" | "done" | string;
+  stage: string;
+  activeLocalId: string | null;
+  activeRemoteId: string | null;
+  conversations: number;
+  warmSandboxes: number;
+  lastError: string | null;
+  model: string;
+  keyPresent: boolean;
+}
+
+/** One rendered line of an agent conversation. */
+export interface AgentMessage {
+  id: string;
+  localId: string;
+  kind: "message" | "action" | "observation" | "usage" | "status" | "error" | "delta" | "other";
+  role: string;
+  text: string;
+  thought: string;
+  tool: string;
+  summary: string;
+  ok: boolean;
+  at: string;
+}
+
+/** The same shape as an event pushed live, before it is stored as a message. */
+export type AgentEvent = Omit<AgentMessage, "localId">;
+
+/** A chat on this desktop and the cloud conversation behind it. */
+export interface AgentConversation {
+  localId: string;
+  remoteId: string;
+  title: string;
+  sandboxId: string | null;
+  lastSeen: number;
+}
+
+/** A tool the agent may use on this computer. */
+export interface AgentTool {
+  name: string;
+  description: string;
+  sensitive: boolean;
+  params: { name: string; type: string; required: boolean }[];
 }

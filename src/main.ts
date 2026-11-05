@@ -8,6 +8,7 @@
 
 import "./styles/global.css";
 import "./styles/lock.css";
+import "./styles/agent.css";
 
 import * as bridge from "./lib/bridge";
 import { isTauri } from "./lib/bridge";

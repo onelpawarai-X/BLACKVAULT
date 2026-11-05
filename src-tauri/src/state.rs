@@ -81,6 +81,24 @@ pub enum CoreEvent {
     /// The prompt is finished and its window should close.
     PromptClosed { token: String },
     Unlocked { token: String },
+    /// The agent's own state changed (busy, phase, stage, conversation count).
+    Agent(Box<crate::runner::AgentState>),
+    /// One rendered line of an agent conversation.
+    AgentEvent {
+        local_id: String,
+        event: crate::cloud::AgentEvent,
+    },
+    /// The agent asked for a tool that needs the user's approval.
+    AgentToolChallenge {
+        local_id: String,
+        tool: String,
+        summary: String,
+        token: String,
+    },
+    /// The agent's socket dropped and is being re-joined.
+    AgentStatus { local_id: String, status: String },
+    /// The agent asked BLACKVAULT to speak.
+    AgentSpeak { text: String },
     Settings(Box<Settings>),
     Toast { title: String, body: String, severity: String },
 }
@@ -132,6 +150,9 @@ pub struct AppState {
     pub last_mic_level: AtomicU64,
     pub app: Mutex<Option<AppHandle>>,
     pub hello_available: AtomicBool,
+    /// The desktop agent: the cloud link, the conversation registry and the
+    /// tool runner. Set once at start-up; `None` only before that.
+    pub agent: Mutex<Option<Arc<crate::runner::AgentRuntime>>>,
 }
 
 impl AppState {
@@ -168,6 +189,7 @@ impl AppState {
             last_mic_level: AtomicU64::new(0),
             app: Mutex::new(None),
             hello_available: AtomicBool::new(false),
+            agent: Mutex::new(None),
         })
     }
 
@@ -274,6 +296,14 @@ pub fn on_setup(app: &mut tauri::App) {
 
     // Start the background engine (voice routing + app guard + watchdog).
     crate::engine::spawn(Arc::clone(&state));
+
+    // Start the desktop agent. It is created even without a cloud key so the
+    // pane can explain what is missing rather than showing nothing.
+    let agent = crate::runner::AgentRuntime::new(Arc::clone(&state));
+    *state.agent.lock() = Some(Arc::clone(&agent));
+    if settings.agent_keepalive {
+        crate::runner::spawn_keepalive(agent);
+    }
 
     // The main window is created hidden. Whether it is revealed depends on the
     // two ways a user can ask for a quiet start: the "start minimised" setting,

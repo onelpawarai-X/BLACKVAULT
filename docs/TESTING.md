@@ -188,3 +188,62 @@ These are real, and are documented rather than hidden:
 - **Protecting a file you do not own needs elevation.** Without it, the
   protection call fails and the failure is reported; nothing is silently
   half-applied.
+
+## 6. The desktop agent
+
+Run the offline suite first (it covers every pure decision):
+
+```
+scripts/pure-core-test.sh
+```
+
+The agent's decision logic is covered without a network: which conversation a
+turn reuses, whether a tool call ends a turn, which tools are sensitive, how a
+spoken request is parsed, and how a lost conversation is recapped.
+
+### Live check (needs a key)
+
+```
+OPENHANDS_API_KEY=… scripts/pure-core-test.sh -- --ignored --nocapture
+```
+
+This performs a real account read and conversation listing against the service
+and prints what it found. It is `#[ignore]`d so the normal suite never needs the
+network.
+
+### Manual checklist (on Windows)
+
+- [ ] Settings → Desktop agent: paste a key, press **সংরক্ষণ**. The status line
+      names the account. An invalid key is refused with a message, and no sandbox
+      is spent.
+- [ ] Agent pane → type "what is on my screen?". A conversation starts (first
+      time only), the stage line shows the provisioning stage, then the answer
+      arrives with the `read_screen` tool card.
+- [ ] Ask for something that runs a command. The approval card appears and the
+      turn **waits**. Refuse it: the agent is told, and the turn continues. Ask
+      again and approve: the command runs and its output is shown.
+- [ ] Send a second message in the same chat: it answers immediately (the
+      sandbox was reused, no new provisioning stage).
+- [ ] Create a second chat: it answers immediately too (a warm sandbox was
+      pooled from the first).
+- [ ] Say "ask the agent to open notepad": the desktop tool runs, Notepad opens,
+      and the answer reports it.
+- [ ] Say "stop the agent" during a long turn: the turn stops and the pane shows
+      it is idle again.
+- [ ] Close the window to the tray, wait a minute, reopen: the chat list is still
+      there and the sandbox is still warm.
+- [ ] Settings → **মুছে ফেলুন**: the key is gone and the pane says so.
+- [ ] Confirm nothing was written to disk unencrypted: `blackvault.db` should
+      contain no readable key material (`strings` on the file).
+
+### Honest limitations
+
+- **The service is remote.** The agent's sandbox is not on this machine; a
+  network outage stops cloud work. The desktop tools keep working, because they
+  run here.
+- **Provisioning is rationed.** A cold conversation can take up to ~30 s and
+  consumes the account's daily allowance; reusing a warm one is free, which is
+  what the warm pool is for.
+- **The account's own prompt is appended to, not replaced.** The service's
+  instructions cannot be removed, so BLACKVAULT's identity contract is added as a
+  suffix and is honoured on top.

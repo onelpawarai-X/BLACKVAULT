@@ -159,3 +159,37 @@ Tick *Require a local factor before running* on a command and it will only run
 within five minutes of a successful authentication. Use this for anything that
 touches money, mail or files — a voice is easy to imitate from a recording, a
 PIN is not.
+
+## 9. The desktop agent
+
+The agent is driven by voice like everything else, but its requests are
+free-form: the words after the prefix *are* the request. Recognised prefixes
+(any of them):
+
+| Say | What happens |
+|---|---|
+| "ask the agent to …" | The rest of the sentence becomes the agent's request |
+| "tell the agent to …" | Same |
+| "ask blackvault to …" | Same |
+| "agent, …" | Same |
+| "agent please …" | Same |
+| "ask the agent" | Opens the Agent pane; the next thing you type is the request |
+| "stop the agent" | Interrupts the running turn |
+
+Examples that work as one utterance:
+
+- "ask the agent to open chrome and search for the weather"
+- "tell blackvault to find the bug in my project and fix it"
+- "agent, summarise what is on my screen"
+- "agent please write a script that tidies my downloads folder"
+
+The wake phrase rule applies exactly as it does to every other command: with
+*Require wake phrase for every command* on, say the wake phrase first. Nothing
+about the agent's voice path is special — it goes through the same
+`engine::on_text` → `execute_command` route, so the same de-duplication, the
+same wake arming and the same audit logging apply.
+
+**A sensitive tool is never run by voice alone.** If a request needs a command
+to be executed, a file to be read, or a protection to be released, the Agent
+pane raises an approval card and the turn waits for the user's own answer. The
+agent cannot approve itself, and a timeout is a refusal.

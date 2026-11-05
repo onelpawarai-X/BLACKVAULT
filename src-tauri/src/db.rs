@@ -338,6 +338,12 @@ impl Db {
             ("paste", "paste", "key_press", Some("ctrl+v"), false, true),
             ("undo", "undo", "key_press", Some("ctrl+z"), false, true),
             ("switch window", "switch window", "key_press", Some("alt+tab"), false, true),
+            // --- the desktop agent ---------------------------------------------
+            // The spoken request itself is free-form and is matched by prefix in
+            // `engine::agent_prompt`; these two are the fixed phrases that drive
+            // it. "ask the agent" is the doorway, "stop the agent" the brake.
+            ("ask the agent", "ask the agent", "agent_ask", Some(""), false, true),
+            ("stop the agent", "stop the agent", "agent_stop", None, false, true),
         ];
         let c = self.conn.lock();
         for (phrase, action, action_type, payload, requires_auth, builtin) in defaults {

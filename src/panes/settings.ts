@@ -38,6 +38,7 @@ export const settingsPane: Pane = {
       group("Identity", [
         textRow("Your name", s.ownerName, (v) => save({ ownerName: v })),
       ]),
+      agentGroup(ctx, save),
       group("Voice engine", [
         row("Always-on listening", "Keep the microphone armed while unlocked.", s.alwaysOnVoice, (v) => save({ alwaysOnVoice: v })),
         row("Wake phrase", "Require the wake phrase before commands are accepted.", s.wakePhraseEnabled, (v) => save({ wakePhraseEnabled: v })),
@@ -281,6 +282,104 @@ function maintenanceRow(ctx: PaneCtx): HTMLElement {
     actions,
   );
 }
+
+/**
+ * The desktop agent's settings, including its cloud key.
+ *
+ * The key is write-only from the UI's point of view: it is never read back, only
+ * replaced or cleared. What the pane shows is whether one is present, which is
+ * all the user needs to know.
+ */
+function agentGroup(
+  ctx: PaneCtx,
+  save: (patch: Partial<Settings>) => Promise<void>,
+): HTMLElement {
+  const s = getState().settings!;
+  const status = el("div", { class: "bv-row-meta", style: "margin-top:6px" }, "কী যাচাই করা হয়নি");
+
+  const keyInput = el("input", {
+    class: "bv-input",
+    type: "password",
+    placeholder: "sk-…",
+    autocomplete: "off",
+    style: "max-width:280px",
+  }) as HTMLInputElement;
+
+  const saveKey = btn("সংরক্ষণ", "primary", async () => {
+    const value = keyInput.value.trim();
+    if (!value) {
+      ctx.toast("কী খালি", "একটা ক্লাউড কী দিন।", "warn");
+      return;
+    }
+    status.textContent = "যাচাই করা হচ্ছে…";
+    try {
+      const message = await bridge.agentSetKey(value);
+      keyInput.value = "";
+      status.textContent = message;
+      ctx.toast("কানেক্টেড", message);
+    } catch (e) {
+      status.textContent = String(e);
+      ctx.toast("কী গ্রহণ করা হয়নি", String(e), "critical");
+    }
+  });
+
+  const clearKey = btn("মুছে ফেলুন", "ghost", async () => {
+    try {
+      await bridge.agentClearKey();
+      status.textContent = "কী মুছে ফেলা হয়েছে";
+      ctx.toast("মুছে ফেলা হয়েছে", "ক্লাউড কী সরানো হয়েছে।");
+    } catch (e) {
+      ctx.toast("মুছে ফেলা যায়নি", String(e), "critical");
+    }
+  });
+
+  const keyRow = el(
+    "div",
+    { class: "bv-row", style: "flex-direction:column;align-items:stretch;gap:9px" },
+    el(
+      "div",
+      { class: "bv-row-main" },
+      el("div", { class: "bv-row-name" }, "ক্লাউড কী"),
+      el(
+        "div",
+        { class: "bv-row-meta" },
+        "আপনার OpenHands API কী। DPAPI দিয়ে সিল করা অবস্থায় এই মেশিনেই রাখা হয় — কখনো কোথাও পাঠানো হয় না।",
+      ),
+    ),
+    el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;align-items:center" }, keyInput, saveKey, clearKey),
+    status,
+  );
+
+  return group("Desktop agent", [
+    row(
+      "এজেন্ট চালু",
+      "BLACKVAULT-এর এজেন্টকে এই কম্পিউটার চালানোর অনুমতি দিন। বন্ধ থাকলে সে শুধু নিজের স্যান্ডবক্সে কাজ করবে।",
+      s.agentEnabled,
+      (v) => save({ agentEnabled: v }),
+    ),
+    row(
+      "সংবেদনশীল কাজে অনুমোদন",
+      "কমান্ড চালানো, ফাইল পড়া বা সুরক্ষা সরানোর আগে আপনাকে জিজ্ঞেস করবে। এজেন্ট নিজে নিজে অনুমোদন দিতে পারবে না।",
+      s.agentConfirmSensitive,
+      (v) => save({ agentConfirmSensitive: v }),
+    ),
+    row(
+      "স্যান্ডবক্স জাগিয়ে রাখা",
+      "সাম্প্রতিক চ্যাটের স্যান্ডবক্স ঘুমাতে দেয় না, তাই পরের বার সাথে সাথে উত্তর আসে।",
+      s.agentKeepalive,
+      (v) => save({ agentKeepalive: v }),
+    ),
+    row(
+      "উত্তর মুখে বলা",
+      "এজেন্টের উত্তর সিস্টেম ভয়েসে পড়ে শোনাবে।",
+      s.agentSpeak,
+      (v) => save({ agentSpeak: v }),
+    ),
+    textRow("মডেল", s.cloudModel ?? "", (v) => save({ cloudModel: v || null })),
+    keyRow,
+  ]);
+}
+
 
 function btn(text: string, variant: string, onClick: () => void | Promise<void>): HTMLButtonElement {
   const b = el("button", { class: `bv-btn${variant && variant !== "default" ? " " + variant : ""}`, type: "button" });

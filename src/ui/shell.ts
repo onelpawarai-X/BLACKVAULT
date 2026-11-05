@@ -6,6 +6,7 @@ import { getState, navigate, subscribe } from "../lib/store";
 import { relTime } from "../lib/dom";
 import type { Pane, PaneCtx } from "./pane";
 import { dashboardPane } from "../panes/dashboard";
+import { agentPane } from "../panes/agent";
 import { voicePane } from "../panes/voice";
 import { launcherPane } from "../panes/launcher";
 import { appsPane } from "../panes/apps";
@@ -24,6 +25,7 @@ interface RouteDef {
 
 const ROUTES: RouteDef[] = [
   { id: "dashboard", label: "Dashboard", icon: ICONS.vault, pane: dashboardPane },
+  { id: "agent", label: "Agent", icon: ICONS.agent, pane: agentPane },
   { id: "voice", label: "Voice", icon: ICONS.mic, pane: voicePane },
   { id: "launcher", label: "Launcher", icon: ICONS.rocket, pane: launcherPane },
   { id: "apps", label: "App Lock", icon: ICONS.app, pane: appsPane },
@@ -110,6 +112,11 @@ export function createShell(host: HTMLElement): { toastHost: HTMLElement } {
 
     const def = ROUTES.find((r) => r.id === st.route) ?? ROUTES[0]!;
     if (mounted !== def.id) {
+      const previous = paneCache.get(mounted) as (HTMLElement & { __bvDispose?: () => void }) | undefined;
+      if (previous?.__bvDispose) {
+        previous.__bvDispose();
+        previous.__bvDispose = undefined;
+      }
       mounted = def.id;
       let node = paneCache.get(def.id);
       if (!node) {

@@ -98,6 +98,7 @@ mod imp {
         SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYBD_EVENT_FLAGS,
         KEYEVENTF_KEYUP, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
         MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL,
+        KEYEVENTF_UNICODE,
         MOUSEINPUT, MOUSEEVENTF_MOVE, MOUSEEVENTF_ABSOLUTE, VIRTUAL_KEY,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -156,6 +157,46 @@ mod imp {
             inputs.push(key_input(*m, true));
         }
         send(&inputs)
+    }
+
+    /// A single keystroke sent as a Unicode scan code.
+    ///
+    /// `KEYEVENTF_UNICODE` is used rather than a virtual key so that any
+    /// character works — Bengali, emoji, punctuation — without the keyboard
+    /// layout having to be able to produce it.
+    fn unicode_input(unit: u16, up: bool) -> INPUT {
+        INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VIRTUAL_KEY(0),
+                    wScan: unit,
+                    dwFlags: KEYEVENTF_UNICODE
+                        | if up { KEYEVENTF_KEYUP } else { KEYBD_EVENT_FLAGS(0) },
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        }
+    }
+
+    /// Type text into whatever window has focus.
+    ///
+    /// UTF-16 is sent in units; a surrogate pair is two units and must not be
+    /// split by a key-up in between, so each unit is down+up and the pair lands
+    /// as one character on the receiving side.
+    pub fn type_text(text: &str) -> BvResult<()> {
+        let mut inputs = Vec::new();
+        for unit in text.encode_utf16() {
+            inputs.push(unicode_input(unit, false));
+            inputs.push(unicode_input(unit, true));
+        }
+        // SendInput has a practical batch limit; large text is chunked so a long
+        // paste never silently truncates.
+        for chunk in inputs.chunks(200) {
+            send(chunk)?;
+        }
+        Ok(())
     }
 
     pub fn tap_key(vk: u16) -> BvResult<()> {
@@ -324,6 +365,10 @@ mod imp {
 mod imp {
     use super::*;
 
+    pub fn type_text(_t: &str) -> BvResult<()> {
+        Err(BvError::msg("typing is only available on Windows"))
+    }
+
     pub fn press_keys(_c: &str) -> BvResult<()> {
         Err(BvError::Unsupported("keyboard automation".into()))
     }
@@ -393,6 +438,7 @@ pub fn run_action(action: &str, payload: Option<&str>) -> BvResult<()> {
             let (dx, dy) = parse_scroll(payload);
             scroll(dx, dy)
         }
+        "type_text" => type_text(payload.unwrap_or("")),
         "minimize_all" => minimize_all(),
         "show_desktop" => show_desktop(),
         "screenshot" => screenshot().map(|_| ()),
