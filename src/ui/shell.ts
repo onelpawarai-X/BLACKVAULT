@@ -114,22 +114,29 @@ export function createShell(host: HTMLElement): { toastHost: HTMLElement } {
     );
 
     const def = ROUTES.find((r) => r.id === st.route) ?? ROUTES[0]!;
-    if (mounted !== def.id) {
+    const changed = mounted !== def.id;
+
+    // Dispose the pane we are leaving.
+    if (changed) {
       const previous = paneCache.get(mounted) as (HTMLElement & { __bvDispose?: () => void }) | undefined;
       if (previous?.__bvDispose) {
         previous.__bvDispose();
         previous.__bvDispose = undefined;
       }
-      mounted = def.id;
-      let node = paneCache.get(def.id);
-      if (!node) {
-        node = el("section", { class: "bv-pane" });
-        paneCache.set(def.id, node);
-      }
-      mount(main, node);
-      // Render fresh each entry so panes always reflect live state.
-      def.pane.render(node, ctx);
     }
+
+    let node = paneCache.get(def.id);
+    if (!node) {
+      node = el("section", { class: "bv-pane" });
+      paneCache.set(def.id, node);
+    }
+    if (changed) mount(main, node);
+    mounted = def.id;
+
+    // Render on every state change, not only on navigation. The first render
+    // happens before the core has answered, so a pane that only painted on
+    // entry would show its empty defaults forever.
+    def.pane.render(node, ctx);
   }
 
   subscribe(render);

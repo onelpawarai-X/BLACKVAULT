@@ -31,6 +31,7 @@ export const agentPane: Pane = {
     let tools: AgentTool[] = [];
     let active = NEW_CHAT;
     let sending = false;
+    let hasKey = false;
 
     // ------------------------------------------------------------ layout
     const rail = el("div", { class: "bv-agent-rail" });
@@ -52,6 +53,7 @@ export const agentPane: Pane = {
 
     const banner = el("div", { class: "bv-agent-banner" });
     const stageLine = el("div", { class: "bv-agent-stage" });
+    const keyCard = el("div", { class: "bv-agent-key" });
 
     const autoGrow = (): void => {
       input.style.height = "auto";
@@ -76,6 +78,7 @@ export const agentPane: Pane = {
           banner,
           stageLine,
           stream,
+          keyCard,
           composer,
         ),
         side,
@@ -401,11 +404,88 @@ export const agentPane: Pane = {
       banner.classList.toggle("is-ready", Boolean(hasKey && !state?.busy));
     }
 
+    /** The key field, shown in place of the composer until a key is stored. */
+    function renderKeyCard(): void {
+      clear(keyCard);
+      keyCard.classList.toggle("is-shown", !hasKey);
+      if (hasKey) return;
+
+      const field = el("input", {
+        class: "bv-input",
+        type: "password",
+        placeholder: "sk-…",
+        autocomplete: "off",
+        "aria-label": "OpenHands API key",
+      }) as HTMLInputElement;
+      const save = el(
+        "button",
+        { class: "bv-btn primary", type: "button" },
+        "কী সংরক্ষণ করুন",
+      ) as HTMLButtonElement;
+      const status = el("div", { class: "bv-agent-key-note" }, "");
+
+      const submit = async (): Promise<void> => {
+        const value = field.value.trim();
+        if (!value) {
+          status.textContent = "একটা কী দিন।";
+          return;
+        }
+        save.disabled = true;
+        status.textContent = "যাচাই করা হচ্ছে…";
+        try {
+          const message = await bridge.agentSetKey(value);
+          field.value = "";
+          hasKey = true;
+          ctx.toast("কানেক্টেড", message);
+          state = await bridge.agentStatus();
+          renderBanner();
+          renderSide();
+          renderKeyCard();
+        } catch (e) {
+          status.textContent = String(e);
+          ctx.toast("কী গ্রহণ করা হয়নি", String(e), "critical");
+        } finally {
+          save.disabled = false;
+        }
+      };
+
+      save.addEventListener("click", () => void submit());
+      field.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          void submit();
+        }
+      });
+
+      mount(
+        keyCard,
+        el(
+          "div",
+          { class: "bv-agent-key-card" },
+          el(
+            "div",
+            { class: "bv-agent-key-head" },
+            svgIcon(ICONS.key, 16),
+            el("span", {}, "OpenHands API কী দিন"),
+          ),
+          el(
+            "div",
+            { class: "bv-agent-key-body" },
+            "এজেন্টের জন্য একটা কী দরকার। কী ছাড়া সে উত্তর দিতে পারবে না। " +
+              "কী DPAPI দিয়ে সিল করা অবস্থায় এই মেশিনেই থাকে — কোথাও পাঠানো হয় না।",
+          ),
+          el("div", { class: "bv-agent-key-row" }, field, save),
+          status,
+        ),
+      );
+    }
+
     function renderAll(): void {
       renderRail();
       renderSide();
       renderComposer();
       renderStage();
+      renderKeyCard();
     }
 
     // The very first paint, before any state has arrived.
@@ -416,9 +496,11 @@ export const agentPane: Pane = {
       switch (e.type) {
         case "agent": {
           state = e.payload;
+          hasKey = Boolean(state.keyPresent);
           renderStage();
           renderSide();
           renderRail();
+          renderKeyCard();
           break;
         }
         case "agentEvent": {
@@ -504,12 +586,14 @@ export const agentPane: Pane = {
     // ------------------------------------------------------------ boot
     void (async () => {
       try {
-        const [s, list, toolList] = await Promise.all([
+        const [s, list, toolList, key] = await Promise.all([
           bridge.agentStatus(),
           bridge.agentConversations(),
           bridge.agentTools(),
+          bridge.agentHasKey(),
         ]);
         state = s;
+        hasKey = Boolean(key) || Boolean(s.keyPresent);
         conversations.splice(0, conversations.length, ...list);
         tools = toolList;
       } catch (e) {

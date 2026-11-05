@@ -134,6 +134,7 @@ textarea {
   position: relative;
   z-index: 1;
   height: 100%;
+  min-width: 0;
   display: grid;
   grid-template-rows: var(--nav-h) 1fr;
 }
@@ -143,6 +144,8 @@ textarea {
   display: flex;
   align-items: center;
   gap: 18px;
+  min-width: 0;
+  overflow: hidden;
   padding: 0 20px;
   background: linear-gradient(
     180deg,
@@ -161,6 +164,7 @@ textarea {
 .bv-brand {
   display: flex;
   align-items: center;
+  flex: none;
   gap: 11px;
   padding-right: 14px;
   margin-right: 4px;
@@ -190,7 +194,16 @@ textarea {
   display: flex;
   gap: 4px;
   flex: 1;
-  overflow: hidden;
+  /* The strip must be allowed to shrink below its content, otherwise the nav's
+     min-content width pushes the whole shell wider than the window and every
+     panel is laid out off to the right. It scrolls instead. */
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.bv-nav-tabs::-webkit-scrollbar {
+  display: none;
 }
 .bv-tab {
   appearance: none;
@@ -229,6 +242,7 @@ textarea {
 .bv-nav-right {
   display: flex;
   align-items: center;
+  flex: none;
   gap: 10px;
 }
 
@@ -846,3 +860,14 @@ textarea {
   color: rgba(255, 255, 255, 0.62);
 }
 .bv-appchallenge-actions { display: flex; gap: 8px; }
+
+/* The window's minimum is 1040px. Below ~1240 the nav gives up its least useful
+   pieces rather than pushing the panels off the right edge. */
+@media (max-width: 1240px) {
+  .bv-brand-tag { display: none; }
+  .bv-nav { gap: 12px; }
+}
+@media (max-width: 1120px) {
+  .bv-version { display: none; }
+  .bv-status { padding: 4px 9px; }
+}

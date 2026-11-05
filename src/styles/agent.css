@@ -669,3 +669,72 @@
   letter-spacing: 0.04em;
   color: var(--ink-faint);
 }
+
+/* ------------------------------------------------------------- key card */
+
+/* Shown in the agent pane itself when no cloud key is stored. A key is the one
+   thing the agent cannot work without, so the field to set it is put where the
+   user is looking instead of only in Settings. */
+.bv-agent-key {
+  display: none;
+  padding: 0 16px 14px;
+}
+
+.bv-agent-key.is-shown {
+  display: block;
+}
+
+.bv-agent-key-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 15px 16px;
+  border: 1px solid var(--glass-border-strong);
+  border-radius: var(--r);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.055),
+    rgba(255, 255, 255, 0.02)
+  );
+  box-shadow: 0 0 44px -22px rgba(255, 255, 255, 0.7),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  animation: bv-agent-rise var(--dur) var(--ease);
+}
+
+.bv-agent-key-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.bv-agent-key-head svg {
+  color: var(--glow);
+}
+
+.bv-agent-key-body {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ink-dim);
+}
+
+.bv-agent-key-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.bv-agent-key-row .bv-input {
+  flex: 1;
+  min-width: 180px;
+}
+
+.bv-agent-key-note {
+  min-height: 16px;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}

@@ -1,6 +1,6 @@
 [package]
 name = "blackvault"
-version = "1.4.1"
+version = "1.4.2"
 description = "BLACKVAULT — Your Voice. Your Control. Your Security."
 authors = ["BLACKVAULT"]
 edition = "2021"
