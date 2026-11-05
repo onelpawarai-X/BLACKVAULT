@@ -193,6 +193,29 @@ function textRow(label: string, value: string, onChange: (v: string) => void): H
   );
 }
 
+function textAreaRow(label: string, hint: string, value: string, onChange: (v: string) => void): HTMLElement {
+  const area = el("textarea", {
+    class: "bv-input",
+    rows: "4",
+    style: "width:100%;resize:vertical;font-family:inherit;line-height:1.5",
+  });
+  area.value = value;
+  // Save on blur, not on every keystroke: the settings write is a full round
+  // trip and this box is the one place a person types at length.
+  area.addEventListener("blur", () => onChange(area.value));
+  return el(
+    "div",
+    { class: "bv-row", style: "flex-direction:column;align-items:stretch;gap:8px" },
+    el(
+      "div",
+      { class: "bv-row-main" },
+      el("div", { class: "bv-row-name" }, label),
+      el("div", { class: "bv-row-meta" }, hint),
+    ),
+    area,
+  );
+}
+
 function numberRow(label: string, value: number, onChange: (v: number) => void): HTMLElement {
   const input = el("input", { class: "bv-input", type: "number", value, style: "max-width:140px" });
   input.addEventListener("change", () => onChange(Number(input.value) || 0));
@@ -374,6 +397,12 @@ function agentGroup(
       "এজেন্টের উত্তর সিস্টেম ভয়েসে পড়ে শোনাবে।",
       s.agentSpeak,
       (v) => save({ agentSpeak: v }),
+    ),
+    textAreaRow(
+      "এজেন্টের নিজস্ব নির্দেশনা",
+      "এই এজেন্টকে আপনি কীভাবে চালাতে চান তা এখানে লিখুন — প্রতিটি কথোপকথনে আপনার এই নির্দেশনা তার সাথে যাবে। যেমন: “সব উত্তর বাংলায় দাও”, “ফাইল ছোঁয়ার আগে জিজ্ঞেস করো”।",
+      s.agentInstructions,
+      (v) => save({ agentInstructions: v }),
     ),
     textRow("মডেল", s.cloudModel ?? "", (v) => save({ cloudModel: v || null })),
     keyRow,

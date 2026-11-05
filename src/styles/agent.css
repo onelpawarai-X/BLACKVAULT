@@ -408,6 +408,68 @@
   animation: bv-agent-spin 1.1s linear infinite;
 }
 
+/* Stop: hidden until a turn is running, then it is the only way out of a long
+   answer. It sits between the mic and send so the composer keeps one row. */
+.bv-agent-stop {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--glass-border-strong);
+  border-radius: var(--r-sm);
+  background: var(--glass);
+  color: var(--ink);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease);
+}
+
+.bv-agent-stop.is-on {
+  display: inline-flex;
+}
+
+.bv-agent-stop:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 0 22px -6px rgba(255, 255, 255, 0.5);
+}
+
+.bv-agent-stop:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Copy on a finished answer: quiet until the card is hovered. */
+.bv-msg-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-dim);
+  opacity: 0;
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease);
+}
+
+.bv-msg:hover .bv-msg-copy {
+  opacity: 1;
+}
+
+.bv-msg-copy:hover {
+  color: var(--ink);
+  background: var(--glass-strong);
+}
+
+.bv-msg-copy.is-done {
+  color: var(--ink);
+  opacity: 1;
+}
+
 /* Push-to-talk: a quieter sibling of the send button that pulses while it waits. */
 .bv-agent-mic {
   display: inline-flex;

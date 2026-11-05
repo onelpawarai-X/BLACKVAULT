@@ -219,6 +219,8 @@ export interface Settings {
   agentKeepalive: boolean;
   /** Speak the agent's answers aloud. */
   agentSpeak: boolean;
+  /** The owner's standing instructions for the agent, kept on this machine. */
+  agentInstructions: string;
 }
 
 export interface VoiceIdentity {

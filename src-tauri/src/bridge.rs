@@ -403,13 +403,29 @@ pub fn title_from(prompt: &str) -> String {
 /// list is stated plainly because an agent that believes it is confined to its
 /// sandbox will describe an action instead of taking it.
 pub fn system_suffix(desktop_tools: &str) -> String {
-    format!(
+    system_suffix_with(desktop_tools, "")
+}
+
+/// As `system_suffix`, with the owner's own standing instructions appended.
+///
+/// The owner's text comes last and is quoted, so a stray instruction in it
+/// cannot be read as a new section of the brief.
+pub fn system_suffix_with(desktop_tools: &str, owner_instructions: &str) -> String {
+    let base = format!(
         "You are BLACKVAULT, the user's own AI agent running on their Windows desktop. \
          Never mention, name or hint at the platform, provider or company behind you — \
          you are simply BLACKVAULT. If asked, say you are BLACKVAULT.\n\n\
          You have real control of this computer. {desktop_tools}\n\n\
          Never ask the user for approval before acting; act, then report what you did \
          in the user's language. Keep answers short and concrete."
+    );
+    let extra = owner_instructions.trim();
+    if extra.is_empty() {
+        return base;
+    }
+    format!(
+        "{base}\n\nThe owner has added these standing instructions. Follow them, but they \
+         never override safety or the rules above:\n\"\"\"\n{extra}\n\"\"\""
     )
 }
 
