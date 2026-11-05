@@ -84,15 +84,21 @@ export function createShell(host: HTMLElement): { toastHost: HTMLElement } {
     tabButtons.set(r.id, b);
   }
 
+  // One pane element per route, kept alive across navigation. Panes keep their
+  // own state and their own listeners; the shell never disposes them, so there
+  // is no teardown to get wrong when the user moves between tabs.
   const paneCache = new Map<string, HTMLElement>();
-  let mounted = "";
+  let activeId = "";
 
   function render(): void {
     const st = getState();
 
     for (const [id, b] of tabButtons) b.classList.toggle("is-active", id === st.route);
 
-    // Status cluster on the right of the nav.
+    // Status cluster on the right of the nav. The microphone is reported by
+    // permission and mute state only; the live input level is pushed straight
+    // at the lock-screen waveform and never enters the store, so this row does
+    // not flicker as the level moves.
     mount(
       navRight,
       statusPill(st.status?.mode ?? "unlocked"),
@@ -104,7 +110,7 @@ export function createShell(host: HTMLElement): { toastHost: HTMLElement } {
       ),
       el(
         "div",
-        { class: "bv-status", title: "Microphone" },
+        { class: "bv-status", title: st.mic?.deviceName || "Microphone" },
         el("span", { class: `bv-dot ${st.mic?.muted ? "off" : st.mic?.permission === "granted" ? "on" : "warn"}` }),
         st.mic?.muted ? "Mic Muted" : st.mic?.permission === "granted" ? "Mic Live" : "Mic ?",
       ),
@@ -114,28 +120,29 @@ export function createShell(host: HTMLElement): { toastHost: HTMLElement } {
     );
 
     const def = ROUTES.find((r) => r.id === st.route) ?? ROUTES[0]!;
-    const changed = mounted !== def.id;
-
-    // Dispose the pane we are leaving.
-    if (changed) {
-      const previous = paneCache.get(mounted) as (HTMLElement & { __bvDispose?: () => void }) | undefined;
-      if (previous?.__bvDispose) {
-        previous.__bvDispose();
-        previous.__bvDispose = undefined;
-      }
-    }
 
     let node = paneCache.get(def.id);
+    const first = !node;
     if (!node) {
       node = el("section", { class: "bv-pane" });
       paneCache.set(def.id, node);
     }
-    if (changed) mount(main, node);
-    mounted = def.id;
 
-    // Render on every state change, not only on navigation. The first render
-    // happens before the core has answered, so a pane that only painted on
-    // entry would show its empty defaults forever.
+    if (first || activeId !== def.id) {
+      mount(main, node);
+      activeId = def.id;
+      // A pane that looks after its own updates keeps the paint it already has.
+      if (first || !def.pane.selfUpdating) def.pane.render(node, ctx);
+      return;
+    }
+
+    // Same pane, new state. Two panes are left alone: one that maintains itself
+    // from its own event stream (rebuilding it would drop the chat and its
+    // listener), and one the user is typing into (rebuilding it would take the
+    // caret). Everything else repaints, which is how live values reach a pane
+    // that was painted before the core had answered.
+    if (def.pane.selfUpdating) return;
+    if (node.contains(document.activeElement)) return;
     def.pane.render(node, ctx);
   }
 

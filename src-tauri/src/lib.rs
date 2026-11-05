@@ -119,6 +119,7 @@ pub fn run() {
             commands::reseal_path,
             // automation
             commands::run_automation,
+            commands::listen_once,
             commands::press_keys,
             commands::click_mouse,
             commands::scroll_mouse,

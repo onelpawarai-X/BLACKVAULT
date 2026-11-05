@@ -8,6 +8,13 @@ export interface PaneCtx {
 export interface Pane {
   readonly id: string;
   readonly title: string;
+  /**
+   * True when the pane keeps itself current from its own event stream and must
+   * not be re-rendered by the shell. The agent pane is the one that does: it
+   * subscribes to the core directly, holds live chat state, and would lose both
+   * the chat and its listener if the shell rebuilt it on every state change.
+   */
+  readonly selfUpdating?: boolean;
   render(host: HTMLElement, ctx: PaneCtx): void;
 }
 

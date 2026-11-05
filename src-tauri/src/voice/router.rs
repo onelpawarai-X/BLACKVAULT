@@ -62,6 +62,15 @@ impl Router {
         self.armed_until = None;
     }
 
+    /// Arm the router for one command without waiting for the wake phrase.
+    ///
+    /// This is the push-to-talk path: the user pressed the microphone button, so
+    /// their next command counts. Like the wake phrase it is consumed by the
+    /// first command it lets through, and it still refuses to unlock.
+    pub fn arm_once(&mut self, window: Duration) {
+        self.armed_until = Some(Instant::now() + window);
+    }
+
     /// Route a match. `locked` is the current security mode; `wake_required`
     /// mirrors the setting of the same name.
     pub fn route(
@@ -187,5 +196,33 @@ mod tests {
         r.route(false, &m("black vault", "wake", 0.9), true, now);
         let later = now + Duration::from_secs(2);
         assert!(!r.armed(later));
+    }
+
+    #[test]
+    fn push_to_talk_runs_one_command_without_the_wake_phrase() {
+        let mut r = Router::new();
+        r.arm_once(Duration::from_secs(5));
+        let now = Instant::now();
+        let out = r.route(false, &m("next", "command", 0.9), true, now);
+        assert_eq!(out.kind, RouteKind::Command);
+        assert!(!r.armed(now), "push-to-talk is spent by the command it let through");
+        assert_eq!(r.route(false, &m("next", "command", 0.9), true, now).kind, RouteKind::Ignore);
+    }
+
+    #[test]
+    fn push_to_talk_expires_and_never_unlocks() {
+        let mut r = Router::new();
+        r.arm_once(Duration::from_millis(1));
+        let later = Instant::now() + Duration::from_secs(2);
+        assert_eq!(r.route(false, &m("next", "command", 0.9), true, later).kind, RouteKind::Ignore);
+
+        let mut locked = Router::new();
+        locked.arm_once(Duration::from_secs(5));
+        let now = Instant::now();
+        assert_eq!(
+            locked.route(true, &m("next", "command", 0.9), true, now).kind,
+            RouteKind::Ignore,
+            "the microphone button must not release the lock"
+        );
     }
 }

@@ -52,6 +52,8 @@ export const getHelloStatus = () => call<HelloStatus>("get_hello_status");
 export const startVoice = () => call<VoiceStatus>("start_voice");
 export const stopVoice = () => call<VoiceStatus>("stop_voice");
 export const restartVoice = () => call<VoiceStatus>("restart_voice");
+/** Push-to-talk: take the next thing said as a command, no wake phrase needed. */
+export const listenOnce = () => call<VoiceStatus>("listen_once");
 export const getVoiceIdentity = () => call<VoiceIdentity>("get_voice_identity");
 export const enrollVoice = (samples: number[]) =>
   call<VoiceIdentity>("enroll_voice", { samples });

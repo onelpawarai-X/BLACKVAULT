@@ -24,6 +24,9 @@ const NEW_CHAT = "new";
 export const agentPane: Pane = {
   id: "agent",
   title: "Agent",
+  // The agent looks after itself: it holds the live chat and listens to the
+  // core directly, so the shell must never rebuild it under the user.
+  selfUpdating: true,
   render(host, ctx) {
     const conversations: AgentConversation[] = [];
     const messages: AgentMessage[] = [];
@@ -50,6 +53,13 @@ export const agentPane: Pane = {
       title: "পাঠান",
     }) as HTMLButtonElement;
     sendBtn.appendChild(svgIcon(ICONS.send, 18));
+
+    const micBtn = el("button", {
+      class: "bv-agent-mic",
+      type: "button",
+      title: "চাপুন, তারপর কমান্ড বলুন",
+    }) as HTMLButtonElement;
+    micBtn.appendChild(svgIcon(ICONS.mic, 18));
 
     const banner = el("div", { class: "bv-agent-banner" });
     const stageLine = el("div", { class: "bv-agent-stage" });
@@ -85,6 +95,7 @@ export const agentPane: Pane = {
       ),
     );
     composer.appendChild(input);
+    composer.appendChild(micBtn);
     composer.appendChild(sendBtn);
 
     // ------------------------------------------------------------ actions
@@ -126,6 +137,39 @@ export const agentPane: Pane = {
       }
     });
     input.addEventListener("input", autoGrow);
+
+    // Push-to-talk. The engine is already listening; this only says "the next
+    // thing said is a command", so the button works even though nothing was
+    // dictated into the box. It settles when the core reports a command, or on
+    // its own after the window closes.
+    let listeningTimer: number | null = null;
+    const stopListening = (): void => {
+      if (listeningTimer !== null) {
+        clearTimeout(listeningTimer);
+        listeningTimer = null;
+      }
+      micBtn.classList.remove("is-listening");
+      micBtn.title = "চাপুন, তারপর কমান্ড বলুন";
+    };
+    micBtn.addEventListener("click", async () => {
+      if (listeningTimer !== null) {
+        stopListening();
+        return;
+      }
+      try {
+        const status = await bridge.listenOnce();
+        if (!status.running) {
+          ctx.toast("ভয়েস ইঞ্জিন বন্ধ", "Voice প্যান থেকে চালু করুন।", "warn");
+          return;
+        }
+      } catch (e) {
+        ctx.toast("মাইক চালু করা যায়নি", String(e), "warn");
+        return;
+      }
+      micBtn.classList.add("is-listening");
+      micBtn.title = "শুনছি… কমান্ড বলুন";
+      listeningTimer = window.setTimeout(stopListening, 12000);
+    });
 
     const openChat = async (localId: string): Promise<void> => {
       active = localId;
@@ -528,6 +572,12 @@ export const agentPane: Pane = {
           speak(e.payload.text);
           break;
         }
+        case "command": {
+          // A command was recognised and run — if we were waiting on the mic
+          // button, that is what it was waiting for.
+          stopListening();
+          break;
+        }
       }
     });
 
@@ -603,7 +653,8 @@ export const agentPane: Pane = {
       renderStream();
     })();
 
-    // Clean up the listener when the pane is torn down.
+    // The pane lives for the whole session, so this disposer is not called
+    // today; it is kept so a future teardown has something to call.
     (host as HTMLElement & { __bvDispose?: () => void }).__bvDispose = off;
   },
 };

@@ -156,7 +156,14 @@ async function bootPrimary(): Promise<void> {
   }
 }
 
-/** Poll the core for the live input level so the waveform breathes. */
+/**
+ * Feed the lock screen's waveform from the live input level.
+ *
+ * The level is the only thing this loop is for, and nothing else in the app
+ * displays it, so it is pushed straight at the waveform and deliberately *not*
+ * into the store. Routing it through `setState` would repaint the whole shell
+ * three times a second for a number no view reads.
+ */
 function startLevelPolling(lock: ReturnType<typeof createLockScreen>): void {
   let busy = false;
   setInterval(async () => {
@@ -164,17 +171,22 @@ function startLevelPolling(lock: ReturnType<typeof createLockScreen>): void {
     busy = true;
     try {
       const mic = await bridge.getMicStatus();
+      lock.setLevel(mic.level);
       const prev = getState().mic;
-      if (!prev || prev.level !== mic.level || prev.muted !== mic.muted) {
+      if (
+        !prev ||
+        prev.muted !== mic.muted ||
+        prev.permission !== mic.permission ||
+        prev.deviceName !== mic.deviceName
+      ) {
         setState({ mic });
-        lock.setLevel(mic.level);
       }
     } catch {
       /* core unavailable */
     } finally {
       busy = false;
     }
-  }, 350);
+  }, 400);
 }
 
 function renderCoreError(host: HTMLElement, message: string): void {

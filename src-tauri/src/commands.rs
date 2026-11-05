@@ -1224,6 +1224,22 @@ pub fn run_automation(state: St<'_>, action: String, payload: Option<String>) ->
     Ok(())
 }
 
+/// Push-to-talk: the user pressed the microphone button, so what is said next is
+/// taken as a command even though the wake phrase was not spoken.
+///
+/// This is not a new listening path. It arms the router for one utterance — the
+/// engine's own capture and the word recogniser do the work — and it runs a
+/// command only when a phrase actually matched. Unrecognised speech is dropped
+/// exactly as it is when listening passively, so the button cannot be used to
+/// brute-force a command, and it can never unlock: unlocking still goes through
+/// the passphrase check and the second factor.
+#[tauri::command]
+pub fn listen_once(state: St<'_>) -> VoiceStatus {
+    state.router.lock().arm_once(Duration::from_secs(12));
+    state.emit(CoreEvent::Voice(state.voice.status()));
+    state.voice.status()
+}
+
 #[tauri::command]
 pub fn press_keys(combo: String) -> BvResult<()> {
     platform::automation::press_keys(&combo)
