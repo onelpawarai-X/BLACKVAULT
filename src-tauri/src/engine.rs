@@ -79,7 +79,7 @@ pub fn spawn(state: Arc<AppState>) {
         let s = Arc::clone(&state);
         state
             .stt
-            .start(Arc::new(move |text: String| on_text(&s, Recogniser::Sapi, &text)));
+            .start(Arc::new(move |text: String| on_text(&s, Recogniser::Endpoint, &text)));
     }
 
     // 4. Supervisor thread: app guard + watchdog + timers.
@@ -397,22 +397,12 @@ fn on_text(state: &Arc<AppState>, source: Recogniser, text: &str) {
     }
 
     let Some((phrase, _score)) = matched else {
-        // Anything that is not a command is simply not ours. It may still be the
-        // secret passphrase: verifying it is the same PBKDF2 comparison the lock
-        // screen runs, so speech is only the input method here — never the proof.
-        if !heard.starts_with("open ")
-            && state
-                .db
-                .get_secret(crate::auth::SECRET_PASSPHRASE)
-                .ok()
-                .flatten()
-                .is_some()
-        {
-            let r = crate::commands::spoken_passphrase(state, &heard);
-            if r.ok {
-                state.toast("Voice phrase accepted", &r.message, "info");
-            }
-        }
+        // Anything that is not a command is simply not ours. It is *not* tried
+        // as a passphrase here: doing that while unlocked turned ordinary
+        // conversation in the room into failed unlock attempts, which climbed the
+        // rate-limit counter until the real passphrase was refused as "too many
+        // attempts". The passphrase is only ever checked on the lock screen, and
+        // through the explicit passphrase field.
         return;
     };
 
@@ -437,17 +427,18 @@ fn match_for(phrase: &str, kind: &str) -> crate::voice::matcher::Match {
 // ------------------------------------------------------------- voice routing
 
 fn on_utterance(state: &Arc<AppState>, utterance: Utterance) {
-    if utterance.mfcc.is_empty() {
-        return;
-    }
     let settings = state.settings();
 
-    // Hand the audio to the word recogniser. This is what makes commands work;
-    // the DTW match below is the voiceprint check, which is a different job.
-    // The worker drops the utterance when it is still busy, so capture is never
-    // stalled by a slow response.
+    // Hand the audio to the word recogniser before anything else. This is what
+    // makes commands work; the DTW match below is the voiceprint check, which is
+    // a different job. The worker drops the utterance when it is still busy, so
+    // capture is never stalled by a slow response.
     if settings.stt_enabled && !utterance.pcm16.is_empty() {
         state.stt.submit(utterance.pcm16.clone());
+    }
+
+    if utterance.mfcc.is_empty() {
+        return;
     }
 
     let locked = state.mode() == SecurityMode::Locked;
@@ -499,17 +490,23 @@ fn on_utterance(state: &Arc<AppState>, utterance: Utterance) {
             ) {
                 Ok(result) if result.ok => {
                     state.emit(CoreEvent::Auth(result.clone()));
-                    if settings.require_second_factor {
-                        // Phrase + voice cleared: ask for the second factor.
-                        state.partial_auth.store(true, Ordering::Relaxed);
-                        let factors = crate::auth::second_step_factors(
+                    let factors = if settings.require_second_factor {
+                        crate::auth::second_step_factors(
                             &state.db,
                             &settings,
                             state.hello_available(),
-                        );
-                        state.emit(CoreEvent::Challenge { factors });
+                        )
                     } else {
+                        Vec::new()
+                    };
+                    if factors.is_empty() {
+                        // No second factor is configured, so the verified phrase
+                        // and voice print complete the unlock on their own.
                         crate::commands::finish_unlock(state);
+                    } else {
+                        // Phrase + voice cleared: ask for the second factor.
+                        state.partial_auth.store(true, Ordering::Relaxed);
+                        state.emit(CoreEvent::Challenge { factors });
                     }
                 }
                 Ok(result) => {
@@ -953,15 +950,26 @@ fn guard_apps(state: &Arc<AppState>) {
             // Killing a protected app the instant it appears is what made the
             // feature feel broken: the app flashed up, vanished, and nothing
             // ever asked for a password.
-            let mut blocks = state.pending_blocks.lock();
-            let (first_seen, last_ask) = *blocks.entry(name.clone()).or_insert((now, now));
-            drop(blocks);
+            let (first_seen, since_ask, never_asked) = {
+                let mut blocks = state.pending_blocks.lock();
+                let entry = blocks
+                    .entry(name.clone())
+                    .or_insert(crate::state::PendingBlock {
+                        first_seen: now,
+                        last_ask: None,
+                        asked: false,
+                    });
+                let since = entry.last_ask.map(|t| now.duration_since(t));
+                (entry.first_seen, since, !entry.asked)
+            };
             let waited = now.duration_since(first_seen);
-            let since_ask = now.duration_since(last_ask);
             if waited < grace {
-                // Re-raise the card periodically. The user may have dismissed
-                // it, and there is no other way back to the prompt.
-                if since_ask >= CHALLENGE_REPEAT {
+                // Raise the card on the first sighting, then re-raise it
+                // periodically. Waiting a full repeat interval before the first
+                // prompt is what let a protected app sit open for eight seconds
+                // with nothing asking for a password.
+                let due = never_asked || since_ask.map(|d| d >= CHALLENGE_REPEAT).unwrap_or(true);
+                if due {
                     // The prompt is its own window: the control centre is in the
                     // tray while the user works, so a card drawn into it would
                     // never be seen.
@@ -979,7 +987,8 @@ fn guard_apps(state: &Arc<AppState>) {
                         Some(&format!("pid {}", matching[0].pid)),
                     );
                     if let Some(entry) = state.pending_blocks.lock().get_mut(&name) {
-                        entry.1 = now;
+                        entry.last_ask = Some(now);
+                        entry.asked = true;
                     }
                 }
                 continue;
@@ -1014,7 +1023,7 @@ fn guard_apps(state: &Arc<AppState>) {
     state
         .pending_blocks
         .lock()
-        .retain(|_, (at, _)| at.elapsed() < Duration::from_secs(300));
+        .retain(|_, b| b.first_seen.elapsed() < Duration::from_secs(300));
 }
 
 // ------------------------------------------------------------- full-screen mode

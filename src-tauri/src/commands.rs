@@ -482,7 +482,19 @@ fn after_factor(state: &Arc<AppState>, result: AuthResult, method: &str) -> Auth
     let settings = state.settings();
     let first_done = state.partial_auth.load(Ordering::Relaxed);
 
-    match auth::decide_step(settings.require_second_factor, first_done, method) {
+    // Two-factor only means anything when a first factor (the passphrase) is
+    // actually configured. With no passphrase the PIN, the pattern or Hello *is*
+    // the only factor, and refusing a correct PIN with "enter your passphrase
+    // first" is the false rejection that made a right credential look wrong.
+    let passphrase_set = state
+        .db
+        .get_secret(crate::auth::SECRET_PASSPHRASE)
+        .ok()
+        .flatten()
+        .is_some();
+    let two_factor = settings.require_second_factor && passphrase_set;
+
+    match auth::decide_step(two_factor, first_done, method) {
         auth::UnlockStep::OutOfOrder => {
             // A PIN on its own must not open the desktop, which is exactly the
             // two-factor policy the user configured.
@@ -495,9 +507,19 @@ fn after_factor(state: &Arc<AppState>, result: AuthResult, method: &str) -> Auth
             refused
         }
         auth::UnlockStep::NeedSecondFactor => {
+            // Ask for the second factor only if one actually exists. With the
+            // default policy on but no PIN, pattern or Hello configured, there is
+            // nothing to ask for, so the verified passphrase completes the unlock
+            // — otherwise the screen would demand the passphrase a second time and
+            // never let the user in.
+            let factors = auth::second_step_factors(&state.db, &settings, state.hello_available());
+            if factors.is_empty() {
+                state.emit(CoreEvent::Auth(result.clone()));
+                finish_unlock(state);
+                return result;
+            }
             state.partial_auth.store(true, Ordering::Relaxed);
             state.emit(CoreEvent::Auth(result.clone()));
-            let factors = auth::second_step_factors(&state.db, &settings, state.hello_available());
             state.emit(CoreEvent::Challenge { factors });
             result
         }

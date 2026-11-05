@@ -103,6 +103,18 @@ pub enum CoreEvent {
     Toast { title: String, body: String, severity: String },
 }
 
+/// The state of one protected process that is running without authorisation.
+pub struct PendingBlock {
+    /// When it was first seen unauthorised — the grace window starts here.
+    pub first_seen: Instant,
+    /// When its prompt was last raised. `None` until the first prompt goes up,
+    /// so the first tick raises the card immediately rather than after a repeat
+    /// interval — which is what made the app look as though it never asked.
+    pub last_ask: Option<Instant>,
+    /// Whether a prompt has ever been raised for this sighting.
+    pub asked: bool,
+}
+
 pub struct AppState {
     pub db: Db,
     pub data_dir: PathBuf,
@@ -125,11 +137,12 @@ pub struct AppState {
     /// the same words, and a command must never fire twice for one utterance —
     /// but the same phrase twice from one recogniser is a deliberate repeat.
     pub last_command: Mutex<Option<(String, Instant, crate::engine::Recogniser)>>,
-    /// When each blocked process was first seen running unauthorised. Drives the
-    /// grace period so a protected app is prompted for, not silently killed.
-    /// Process name -> (first seen unauthorised, last prompt raised).
-    pub pending_blocks:
-        Mutex<std::collections::HashMap<String, (Instant, Instant)>>,
+    /// When each blocked process was first seen running unauthorised, and when
+    /// its authentication prompt was last raised. Drives the grace period so a
+    /// protected app is prompted for, not silently killed — and the prompt is
+    /// raised on the *first* sighting, not one repeat-interval later.
+    /// Process name -> state.
+    pub pending_blocks: Mutex<std::collections::HashMap<String, PendingBlock>>,
     /// The authentication prompt that is open right now, if any. Its token is
     /// regenerated every time a prompt is raised, so a PIN entered for one
     /// protected application or file can never release a different one.
