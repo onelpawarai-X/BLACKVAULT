@@ -65,6 +65,12 @@ pub fn first_step_factors(db: &Db, settings: &Settings, hello_available: bool) -
 
 /// The factors that satisfy the *second* step. Only the non-passphrase factors,
 /// so the screen never offers the passphrase twice.
+///
+/// An empty result means there is no second factor at all: the passphrase alone
+/// must then complete the unlock. The previous version fell back to the
+/// passphrase, which made the screen ask for it again after it had just been
+/// accepted — an unlock that could never finish, reported as "the password is
+/// wrong".
 pub fn second_step_factors(db: &Db, settings: &Settings, hello_available: bool) -> Vec<String> {
     let mut factors: Vec<String> = Vec::new();
     if db.get_secret(SECRET_PIN).ok().flatten().is_some() {
@@ -76,10 +82,7 @@ pub fn second_step_factors(db: &Db, settings: &Settings, hello_available: bool) 
     if hello_available {
         factors.push("hello".into());
     }
-    if factors.is_empty() {
-        // No second factor configured: nothing more to ask for.
-        factors.push("passphrase".into());
-    }
+    let _ = settings;
     factors
 }
 
@@ -507,11 +510,14 @@ mod tests {
     }
 
     #[test]
-    fn second_step_falls_back_when_nothing_else_is_configured() {
+    fn second_step_is_empty_when_nothing_else_is_configured() {
         let d = db();
         let s = Settings::default();
         set_passphrase(&d, "silver thunder vault").unwrap();
-        // No PIN, no pattern, no Hello: the screen must not dead-end.
-        assert_eq!(second_step_factors(&d, &s, false), vec!["passphrase"]);
+        // No PIN, no pattern, no Hello: there is no second factor, so the
+        // passphrase alone must complete the unlock rather than the screen asking
+        // for it again.
+        assert!(second_step_factors(&d, &s, false).is_empty());
+        assert_eq!(decide_step(true, false, "passphrase"), UnlockStep::NeedSecondFactor);
     }
 }

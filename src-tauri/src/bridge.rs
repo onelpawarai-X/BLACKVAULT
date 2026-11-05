@@ -254,26 +254,32 @@ pub enum Reaction {
 /// This is where the "a tool call does not end the turn" rule lives. An action
 /// naming one of our tools must be run and answered; only a status that says the
 /// agent is idle *and* nothing is owed to it ends the turn.
+///
+/// The arguments a tool is called with travel on the event itself
+/// ([`AgentEvent::arguments`]); they are not passed in separately, because the
+/// only caller that has them is the event's own normaliser.
 pub fn react_to(
     event: &crate::cloud::AgentEvent,
     is_our_tool: impl Fn(&str) -> bool,
-    tool_arguments: Option<serde_json::Value>,
 ) -> Reaction {
     match event.kind.as_str() {
         "action" if is_our_tool(&event.tool) => Reaction::RunTool {
             name: event.tool.clone(),
-            arguments: tool_arguments.unwrap_or(serde_json::Value::Null),
+            arguments: event.arguments.clone(),
         },
         "message" if event.role == "assistant" => Reaction::Show,
         "action" | "observation" | "usage" | "delta" => Reaction::Show,
         "error" => Reaction::Show,
-        "status" => {
-            if matches!(event.text.as_str(), "finished" | "idle" | "stopped") {
+        // The turn's liveness. Only a `finished`/`stopped` *transition* ends the
+        // turn; the `idle` the socket replays on connect is stale and is ignored.
+        "exec_status" => {
+            if matches!(event.text.as_str(), "finished" | "stopped") {
                 Reaction::Finish
             } else {
-                Reaction::Show
+                Reaction::Ignore
             }
         }
+        "status" => Reaction::Show,
         _ => Reaction::Ignore,
     }
 }
@@ -649,12 +655,19 @@ mod tests {
         }
     }
 
+    /// A tool action event, carrying the arguments the service would have sent.
+    fn tool_event(tool: &str, arguments: serde_json::Value) -> AgentEvent {
+        AgentEvent {
+            arguments,
+            ..event("action", tool, "", "")
+        }
+    }
+
     #[test]
     fn our_own_tool_call_is_run_not_shown() {
         let reaction = react_to(
-            &event("action", "open_app", "", ""),
+            &tool_event("open_app", serde_json::json!({ "app": "Chrome" })),
             |n| n == "open_app",
-            Some(serde_json::json!({ "app": "Chrome" })),
         );
         assert_eq!(
             reaction,
@@ -667,23 +680,39 @@ mod tests {
 
     #[test]
     fn a_cloud_tool_call_is_only_shown() {
-        let reaction = react_to(&event("action", "terminal", "", ""), |_| false, None);
+        let reaction = react_to(&event("action", "terminal", "", ""), |_| false);
         assert_eq!(reaction, Reaction::Show);
     }
 
     #[test]
     fn an_assistant_message_is_shown_and_a_status_of_finished_finishes() {
         assert_eq!(
-            react_to(&event("message", "", "assistant", "hi"), |_| false, None),
+            react_to(&event("message", "", "assistant", "hi"), |_| false),
             Reaction::Show
         );
         assert_eq!(
-            react_to(&event("status", "", "", "finished"), |_| false, None),
+            react_to(&event("exec_status", "", "", "finished"), |_| false),
             Reaction::Finish
         );
         assert_eq!(
-            react_to(&event("status", "", "", "thinking"), |_| false, None),
+            react_to(&event("exec_status", "", "", "running"), |_| false),
+            Reaction::Ignore
+        );
+        // A plain status is a transcript line, never the end of the turn.
+        assert_eq!(
+            react_to(&event("status", "", "", "finished"), |_| false),
             Reaction::Show
+        );
+    }
+
+    #[test]
+    fn the_replayed_idle_status_does_not_end_the_turn() {
+        // The socket replays `execution_status:"idle"` the moment it connects.
+        // Treating that as the end closed the socket before the answer arrived,
+        // which is why nothing ever streamed.
+        assert_eq!(
+            react_to(&event("exec_status", "", "", "idle"), |_| false),
+            Reaction::Ignore
         );
     }
 
@@ -693,20 +722,42 @@ mod tests {
         // bridge treated the following "finished" as the end it would drop the
         // user's answer on the floor.
         let tool = react_to(
-            &event("action", "run_command", "", ""),
+            &tool_event("run_command", serde_json::json!({ "command": "dir" })),
             |_| true,
-            Some(serde_json::json!({ "command": "dir" })),
         );
         assert!(matches!(tool, Reaction::RunTool { .. }));
-        let after = react_to(&event("status", "", "", "finished"), |_| true, None);
+        let after = react_to(&event("exec_status", "", "", "finished"), |_| true);
         assert_eq!(after, Reaction::Finish);
     }
 
     #[test]
     fn an_unrenderable_event_is_ignored() {
         assert_eq!(
-            react_to(&event("other", "", "", ""), |_| false, None),
+            react_to(&event("other", "", "", ""), |_| false),
             Reaction::Ignore
+        );
+    }
+
+    #[test]
+    fn a_real_tool_call_travels_from_the_wire_to_a_plan() {
+        // The whole chain, on the exact shape the service sends (captured from a
+        // live socket): the action object carries the arguments, `react_to` keeps
+        // them, and `plan_tool` turns them into something the machine can run.
+        let raw = serde_json::json!({
+            "id": "e1",
+            "kind": "ActionEvent",
+            "tool_name": "bv_run_command_v1",
+            "action": { "command": "echo hi", "kind": "ClientAction_bv_run_command_v1" }
+        });
+        let normalised = crate::cloud::normalise_event(&raw);
+        let reaction = react_to(&normalised, crate::agent::is_desktop_tool);
+        let Reaction::RunTool { name, arguments } = reaction else {
+            panic!("a call for one of our tools must be run, got {reaction:?}");
+        };
+        let plan = crate::agent::plan_tool(&name, &arguments).expect("arguments must parse");
+        assert_eq!(
+            plan,
+            crate::agent::ToolPlan::RunCommand("echo hi".into())
         );
     }
 

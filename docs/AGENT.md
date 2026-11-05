@@ -123,8 +123,28 @@ done by the person at the lock screen, through `auth.rs`, and by nothing else.
 | The service is slow to provision | Polled with a stage label, up to 180 s |
 | The key is wrong | The account call fails and the pane says so; no sandbox is spent |
 | No key at all | The pane says so; voice requests to the agent are refused with a reason |
+| The socket goes quiet with no `finished` | After a bounded quiet period with no tool mid-run, the turn is closed by the runner, so the pane cannot stay "running" for ever |
 
-## 8. What this is not
+## 8. Streaming and history
+
+Two things a chat must do, and how they are done here:
+
+- **A turn streams as it is produced.** The runner opens the socket *before* it
+  sends the message, so no event can be missed in the gap. Every
+  `StreamingDeltaEvent` is pushed to the pane the moment it arrives — the model's
+  reasoning first, then its answer — and folded into one growing card
+  (`src/lib/agentstream.ts`). Nothing waits for the turn to finish.
+- **An earlier conversation is replayed.** Opening a chat fetches its recent
+  events (`Cloud::history`), normalises them exactly as the live socket does, and
+  draws the transcript. A reconnect replays the same way, so the history is not
+  lost when the socket drops.
+
+The status of a turn is carried by the event's own `execution_status`, never
+inferred from an unrelated key: `running` means working, `finished`/`idle` with
+nothing owed means over. A `finished` that arrives while one of our tools is
+still mid-run is not the end of the turn.
+
+## 9. What this is not
 
 - It is **not** a bypass of Windows security. The agent runs with the same
   privileges as BLACKVAULT, cannot type into a higher-integrity window (UIPI),

@@ -45,8 +45,8 @@ This is the state of the suite as built.
 ### 3.1 Rust core
 
 ```
-running 102 tests
-test result: ok. 102 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+running 180 tests
+test result: ok. 179 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out
 ```
 
 The suite covers, among others:
@@ -74,8 +74,8 @@ The suite covers, among others:
 ### 3.2 Frontend
 
 ```
-Test Files  1 passed (1)
-     Tests  14 passed (14)
+Test Files  3 passed (3)
+     Tests  23 passed (23)
 ```
 
 - Phrase normalisation parity with the Rust side.
@@ -90,7 +90,7 @@ Test Files  1 passed (1)
 ```
 npm run build          → vite build, 25 modules, dist/ produced
 npx tsc --noEmit       → 0 errors
-cargo test             → 102 passed, 0 failed
+cargo test             → 179 passed, 0 failed (1 ignored)
 ```
 
 ## 4. Manual verification checklist

@@ -33,7 +33,10 @@ impl Default for Vad {
             speech_blocks: 0,
             quiet_blocks: 0,
             min_speech: 3,
-            min_quiet: 12,
+            // ~800 ms of quiet before the utterance is closed. The old 240 ms
+            // split a phrase on any natural pause ("lock … this pc"), so the
+            // two halves were recognised separately and no command ever matched.
+            min_quiet: 40,
         }
     }
 }

@@ -68,6 +68,25 @@ const AUTH_WINDOW: i64 = 300;
 /// How long a sensitive tool call waits for the user's answer.
 const APPROVAL_TIMEOUT: u64 = 120;
 
+/// How long a turn may sit with the socket saying nothing before it is taken to
+/// be over. A model that is thinking streams deltas throughout, so true silence
+/// this long means the `finished` status was missed — and the alternative is a
+/// pane that says "running" for ever.
+const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Clears the runner's `running` flag when a turn ends, however it ends.
+///
+/// `run_turn` may return early or panic; without this the flag would stay set
+/// and every later message would be refused with "a previous task is running".
+struct RunningGuard(Arc<AgentRuntime>);
+
+impl Drop for RunningGuard {
+    fn drop(&mut self) {
+        self.0.running.store(false, Ordering::SeqCst);
+        self.0.refresh_snapshot();
+    }
+}
+
 /// The state the runner keeps, shared with the UI.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -358,12 +377,13 @@ impl AgentRuntime {
         }
         let this = self.clone();
         std::thread::spawn(move || {
+            // The flag is cleared by a guard so a panic anywhere in the turn
+            // cannot leave `running` set and the pane busy for ever.
+            let _guard = RunningGuard(this.clone());
             let result = this.run_turn(&local_id, &prompt);
             if let Err(e) = result {
                 this.fail(e.to_string());
             }
-            this.running.store(false, Ordering::SeqCst);
-            this.refresh_snapshot();
         });
     }
 
@@ -397,12 +417,17 @@ impl AgentRuntime {
         }
 
         // 2. Get a conversation that is up, and remember it.
-        let (conversation, first_prompt) = match plan {
+        //
+        // `deliver` is the message that still has to be sent to that
+        // conversation. A conversation created this turn already carries the
+        // prompt as its initial message, so it has nothing left to deliver — the
+        // service would otherwise be told the same thing twice.
+        let (conversation, deliver) = match plan {
             bridge::TurnPlan::Reuse { remote_id } => {
                 self.set_phase(TurnPhase::Working, "");
                 (
                     self.cloud.conversation(&key, &remote_id)?,
-                    prompt.to_string(),
+                    Some(prompt.to_string()),
                 )
             }
             bridge::TurnPlan::Resume {
@@ -417,14 +442,16 @@ impl AgentRuntime {
                 self.registry.write().remember_warm(
                     conversation.sandbox_id.as_deref().unwrap_or(&sandbox_id),
                 );
-                (conversation, prompt.to_string())
+                (conversation, Some(prompt.to_string()))
             }
             bridge::TurnPlan::Start { .. } => {
                 self.set_phase(TurnPhase::Preparing, "কনভার্সেশন তৈরি হচ্ছে…");
                 if let Some(sandbox) = &warm {
                     let _ = self.cloud.resume_sandbox(&key, sandbox);
                 }
-                self.begin_conversation(&key, local_id, prompt, warm.as_deref())?
+                let (conversation, _) =
+                    self.begin_conversation(&key, local_id, prompt, warm.as_deref())?;
+                (conversation, None)
             }
         };
 
@@ -444,30 +471,32 @@ impl AgentRuntime {
             snapshot.active_remote_id = Some(conversation.id.clone());
         }
 
-        // 3. Send, and recover once if the send fails.
+        // 3. Listen, delivering the message once the socket is up. A send that
+        //    fails means the sandbox has died between turns; the history is
+        //    handed to a fresh conversation so the user keeps their thread.
         self.set_phase(TurnPhase::Working, "");
-        if let Err(send_error) = self.cloud.send_message(&key, &conversation.id, &first_prompt) {
-            log::warn!("agent: send failed ({send_error}); recovering");
-            let history = self
-                .cloud
-                .history(&key, &conversation.id, 40)
-                .unwrap_or_default();
-            let recap = bridge::recovery_prompt(&history, 30);
-            self.set_phase(TurnPhase::Preparing, "নতুন সেশন তৈরি হচ্ছে…");
-            let (fresh, _) = self.begin_conversation(&key, local_id, &recap, warm.as_deref())?;
-            self.registry.write().bind(
-                local_id,
-                &fresh.id,
-                fresh.sandbox_id.as_deref(),
-                &bridge::title_from(prompt),
-                now_secs(),
-            );
-            self.persist_registry();
-            self.cloud.send_message(&key, &fresh.id, prompt)?;
-            return self.listen(&key, &fresh, local_id);
+        match self.listen(&key, &conversation, local_id, deliver.as_deref()) {
+            Err(error) if deliver.is_some() => {
+                log::warn!("agent: turn failed ({error}); recovering into a new session");
+                let history = self
+                    .cloud
+                    .history(&key, &conversation.id, 100)
+                    .unwrap_or_default();
+                let recap = bridge::recovery_prompt(&history, 30);
+                self.set_phase(TurnPhase::Preparing, "নতুন সেশন তৈরি হচ্ছে…");
+                let (fresh, _) = self.begin_conversation(&key, local_id, &recap, warm.as_deref())?;
+                self.registry.write().bind(
+                    local_id,
+                    &fresh.id,
+                    fresh.sandbox_id.as_deref(),
+                    &bridge::title_from(prompt),
+                    now_secs(),
+                );
+                self.persist_registry();
+                self.listen(&key, &fresh, local_id, Some(prompt))
+            }
+            other => other,
         }
-
-        self.listen(&key, &conversation, local_id)
     }
 
     /// Create a conversation and wait for its sandbox.
@@ -537,11 +566,19 @@ impl AgentRuntime {
     }
 
     /// Watch the conversation's socket, running our tools and showing the rest.
+    ///
+    /// `send` is the message to queue once the socket is up, if any. It is sent
+    /// *after* the socket is open on purpose: a short turn can begin and finish
+    /// within a second, and a message sent first would have its whole answer —
+    /// deltas, the final message and the `finished` status — happen before the
+    /// socket existed. The turn would then show nothing and never be seen to end,
+    /// leaving the pane busy for ever.
     fn listen(
         &self,
         key: &str,
         conversation: &ConversationBrief,
         local_id: &str,
+        send: Option<&str>,
     ) -> BvResult<()> {
         let session_key = conversation
             .session_api_key
@@ -554,35 +591,42 @@ impl AgentRuntime {
         self.set_phase(TurnPhase::Working, "");
 
         let this = self;
-        let mut pending_tool: Option<(String, Value)> = None;
         let mut owed = false;
         let mut stream_error: Option<String> = None;
+        // When the last event was seen. Used to end a turn whose `finished`
+        // never arrived, so a quiet socket cannot hold the pane busy for ever.
+        let mut quiet_started: Option<std::time::Instant> = None;
+        // The message is sent from inside the socket loop, so it cannot be
+        // missed. `sent_once` keeps it to a single send across a reconnect.
+        let pending = Mutex::new(send.map(str::to_string));
+        let sent_once = AtomicBool::new(send.is_none());
 
         let result = crate::cloud::stream_events(
             conversation,
             &session_key,
             stop.clone(),
             &mut |signal| match signal {
+                crate::cloud::StreamSignal::Connected => {
+                    if !sent_once.swap(true, Ordering::SeqCst) {
+                        let queued = pending.lock().take();
+                        if let Some(text) = queued {
+                            if let Err(e) = this.cloud.send_message(key, &conversation.id, &text) {
+                                stream_error = Some(e.to_string());
+                                stop.store(true, Ordering::Relaxed);
+                            }
+                        }
+                    }
+                }
                 crate::cloud::StreamSignal::Event(event) => {
                     let event = *event;
-                    // A tool call's arguments are not in the action event's
-                    // summary, so a call for one of ours is answered from what
-                    // the event carries. The service puts them in `action`.
-                    let arguments = pending_tool
-                        .as_ref()
-                        .filter(|(name, _)| *name == event.tool)
-                        .map(|(_, args)| args.clone());
-                    match bridge::react_to(&event, agent::is_desktop_tool, arguments) {
+                    // Any event is activity: the quiet clock restarts.
+                    quiet_started = None;
+                    match bridge::react_to(&event, agent::is_desktop_tool) {
                         Reaction::Show => {
                             this.state.emit(CoreEvent::AgentEvent {
                                 local_id: local_id.to_string(),
                                 event: event.clone(),
                             });
-                            if event.kind == "action" && agent::is_desktop_tool(&event.tool) {
-                                // Remember the call so the arguments survive
-                                // until the tool is run.
-                                pending_tool = Some((event.tool.clone(), Value::Null));
-                            }
                         }
                         Reaction::RunTool { name, arguments } => {
                             owed = true;
@@ -600,7 +644,6 @@ impl AgentRuntime {
                                 stream_error = Some(e.to_string());
                             }
                             owed = false;
-                            pending_tool = None;
                         }
                         Reaction::Finish => {
                             if !owed {
@@ -608,6 +651,16 @@ impl AgentRuntime {
                             }
                         }
                         Reaction::Ignore => {}
+                    }
+                }
+                crate::cloud::StreamSignal::Idle => {
+                    // Nothing arrived. If the agent has been quiet for long enough
+                    // that it cannot still be working — and no tool of ours is
+                    // mid-run — the turn is over. This is the backstop that stops
+                    // a missed `finished` from leaving the pane busy for ever.
+                    let quiet = *quiet_started.get_or_insert_with(std::time::Instant::now);
+                    if !owed && quiet.elapsed() > IDLE_TIMEOUT {
+                        stop.store(true, Ordering::Relaxed);
                     }
                 }
                 crate::cloud::StreamSignal::Reconnecting(reason) => {
