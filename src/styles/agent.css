@@ -446,6 +446,33 @@
   }
 }
 
+/* The answer while it is still being written: no entry animation (it would
+   restart on every chunk) and a caret that breathes. */
+.bv-msg-kind-delta.is-streaming {
+  animation: none;
+}
+
+.bv-msg-kind-delta.is-streaming .bv-msg-body::after {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 3px;
+  vertical-align: text-bottom;
+  background: var(--ink);
+  animation: bv-caret 1s steps(2, start) infinite;
+}
+
+@keyframes bv-caret {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
 /* --------------------------------------------------------------- aside */
 
 .bv-agent-side {

@@ -12,6 +12,7 @@ import { clear, el, mount, relTime, svgIcon } from "../lib/dom";
 import { ICONS } from "../lib/icons";
 import type {
   AgentConversation,
+  AgentEvent,
   AgentMessage,
   AgentState,
   AgentTool,
@@ -271,6 +272,7 @@ export const agentPane: Pane = {
 
     function renderStream(): void {
       clear(stream);
+      streaming = null;
       if (!messages.length) {
         stream.appendChild(emptyState());
         return;
@@ -279,6 +281,54 @@ export const agentPane: Pane = {
         const node = messageCard(m);
         if (node) stream.appendChild(node);
       }
+      stream.scrollTop = stream.scrollHeight;
+    }
+
+    // The answer as it arrives. A delta updates this one node instead of
+    // rebuilding the transcript, and the card is dropped when the final message
+    // for the turn lands, so nothing is shown twice.
+    let streaming: { localId: string; node: HTMLElement; body: HTMLElement; text: string } | null =
+      null;
+
+    function clearStreaming(): void {
+      if (!streaming) return;
+      streaming.node.remove();
+      streaming = null;
+    }
+
+    function dropEmptyState(): void {
+      stream.querySelector(".bv-agent-empty")?.remove();
+    }
+
+    /** Append one finished message without touching the ones already shown. */
+    function appendMessage(m: AgentMessage): void {
+      const node = messageCard(m);
+      if (!node) return;
+      dropEmptyState();
+      stream.appendChild(node);
+      stream.scrollTop = stream.scrollHeight;
+    }
+
+    function pushDelta(localId: string, ev: AgentEvent): void {
+      const chunk = ev.text ?? "";
+      if (!chunk) return;
+      if (!streaming || streaming.localId !== localId) {
+        clearStreaming();
+        dropEmptyState();
+        const card = el("div", { class: "bv-msg bv-msg-assistant bv-msg-kind-delta is-streaming" });
+        const head = el("div", { class: "bv-msg-head" });
+        head.appendChild(el("span", { class: "bv-msg-who" }, "BLACKVAULT"));
+        card.appendChild(head);
+        const body = el("div", { class: "bv-msg-body" });
+        card.appendChild(body);
+        stream.appendChild(card);
+        streaming = { localId, node: card, body, text: "" };
+      }
+      // The service may send incremental chunks or the whole text so far; accept
+      // either rather than guess which one it is.
+      if (chunk.startsWith(streaming.text)) streaming.text = chunk;
+      else if (!streaming.text.endsWith(chunk)) streaming.text += chunk;
+      streaming.body.textContent = streaming.text;
       stream.scrollTop = stream.scrollHeight;
     }
 
@@ -550,9 +600,15 @@ export const agentPane: Pane = {
         case "agentEvent": {
           const ev = e.payload.event;
           if (e.payload.localId !== active && active !== NEW_CHAT) break;
-          if (ev.kind === "delta") break;
+          if (ev.kind === "delta") {
+            // The answer, live. Kept as its own card until the final message
+            // arrives, then replaced by the durable copy.
+            pushDelta(e.payload.localId, ev);
+            break;
+          }
+          if (ev.kind === "message" && ev.role === "assistant") clearStreaming();
           messages.push({ ...ev, localId: e.payload.localId });
-          renderStream();
+          appendMessage({ ...ev, localId: e.payload.localId });
           break;
         }
         case "agentToolChallenge": {
