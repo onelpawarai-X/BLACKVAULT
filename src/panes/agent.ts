@@ -270,6 +270,12 @@ export const agentPane: Pane = {
       return row;
     }
 
+    // The answer as it arrives. A delta updates this one node instead of
+    // rebuilding the transcript, and the card is dropped when the final message
+    // for the turn lands, so nothing is shown twice.
+    let streaming: { localId: string; node: HTMLElement; body: HTMLElement; text: string } | null =
+      null;
+
     function renderStream(): void {
       clear(stream);
       streaming = null;
@@ -283,12 +289,6 @@ export const agentPane: Pane = {
       }
       stream.scrollTop = stream.scrollHeight;
     }
-
-    // The answer as it arrives. A delta updates this one node instead of
-    // rebuilding the transcript, and the card is dropped when the final message
-    // for the turn lands, so nothing is shown twice.
-    let streaming: { localId: string; node: HTMLElement; body: HTMLElement; text: string } | null =
-      null;
 
     function clearStreaming(): void {
       if (!streaming) return;
