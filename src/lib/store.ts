@@ -25,6 +25,7 @@ export interface AppState {
   heardFinal: boolean;
   lastCommand: string | null;
   booted: boolean;
+  version: string;
   route: string;
   toasts: { id: number; title: string; body: string; severity: string }[];
 }
@@ -41,6 +42,7 @@ const initial: AppState = {
   heardFinal: false,
   lastCommand: null,
   booted: false,
+  version: "",
   route: "dashboard",
   toasts: [],
 };

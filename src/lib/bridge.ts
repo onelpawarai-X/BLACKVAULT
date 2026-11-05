@@ -239,6 +239,17 @@ export const EVENTS = {
 
 // ============================ Desktop agent ==============================
 
+/** The running build's version, straight from Tauri. */
+export async function appVersion(): Promise<string> {
+  if (!isTauri()) return "dev";
+  try {
+    const { getVersion } = await import("@tauri-apps/api/app");
+    return await getVersion();
+  } catch {
+    return "dev";
+  }
+}
+
 export const agentStatus = () => call<AgentState>("agent_status");
 export const agentHasKey = () => call<boolean>("agent_has_key");
 export const agentSetKey = (key: string) => call<string>("agent_set_key", { key });

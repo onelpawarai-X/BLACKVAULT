@@ -50,6 +50,7 @@ export const agentPane: Pane = {
     }) as HTMLButtonElement;
     sendBtn.appendChild(svgIcon(ICONS.send, 18));
 
+    const banner = el("div", { class: "bv-agent-banner" });
     const stageLine = el("div", { class: "bv-agent-stage" });
 
     const autoGrow = (): void => {
@@ -72,6 +73,7 @@ export const agentPane: Pane = {
         el(
           "div",
           { class: "bv-agent-main" },
+          banner,
           stageLine,
           stream,
           composer,
@@ -360,10 +362,43 @@ export const agentPane: Pane = {
 
     function renderStage(): void {
       const phase = state?.phase ?? "done";
-      stageLine.textContent = state?.busy
-        ? state.stage || phaseText(phase)
-        : "";
+      stageLine.textContent = state?.busy ? state.stage || phaseText(phase) : "";
       stageLine.classList.toggle("is-visible", Boolean(state?.busy));
+      renderBanner();
+    }
+
+    /**
+     * The one line that answers "can I send now?".
+     *
+     * Four states, in priority order: no key (nothing can work), busy (a turn is
+     * running), ready (a conversation is warm), idle (ready to start one).
+     */
+    function renderBanner(): void {
+      clear(banner);
+      const hasKey = Boolean(state?.keyPresent);
+      let dot = "off";
+      let label = "ক্লাউড কী নেই";
+      let detail = "সেটিংস → Desktop agent-এ কী যোগ করুন";
+      if (hasKey && state?.busy) {
+        dot = "warn";
+        label = state.stage || phaseText(state.phase);
+        detail = "কাজ চলছে…";
+      } else if (hasKey && (state?.conversations ?? 0) > 0) {
+        dot = "on";
+        label = "রেডি — এখন মেসেজ দিতে পারবেন";
+        detail = "Enter চাপলে বা বললে উত্তর আসবে";
+      } else if (hasKey) {
+        dot = "on";
+        label = "রেডি — নতুন চ্যাট শুরু হবে";
+        detail = "প্রথম মেসেজে একটা কনভার্সেশন তৈরি হবে";
+      }
+      banner.appendChild(el("span", { class: `bv-dot ${dot}` }));
+      const body = el("div", { class: "bv-agent-banner-body" });
+      body.appendChild(el("div", { class: "bv-agent-banner-label" }, label));
+      body.appendChild(el("div", { class: "bv-agent-banner-detail" }, detail));
+      banner.appendChild(body);
+      banner.classList.toggle("is-busy", Boolean(hasKey && state?.busy));
+      banner.classList.toggle("is-ready", Boolean(hasKey && !state?.busy));
     }
 
     function renderAll(): void {
@@ -372,6 +407,9 @@ export const agentPane: Pane = {
       renderComposer();
       renderStage();
     }
+
+    // The very first paint, before any state has arrived.
+    renderBanner();
 
     // ------------------------------------------------------------ wiring
     const off = bridge.onCoreEvent((e) => {

@@ -117,7 +117,7 @@ async function bootPrimary(): Promise<void> {
 
   // ------------------------------------------------------------------- boot
   try {
-    const [status, settings, voice, mic, hello, commands, events] = await Promise.all([
+    const [status, settings, voice, mic, hello, commands, events, version] = await Promise.all([
       bridge.getStatus(),
       bridge.getSettings(),
       bridge.getVoiceStatus(),
@@ -125,8 +125,9 @@ async function bootPrimary(): Promise<void> {
       bridge.getHelloStatus(),
       bridge.listCommands(),
       bridge.listEvents(200),
+      bridge.appVersion(),
     ]);
-    setState({ status, settings, voice, mic, hello, commands, events, booted: true });
+    setState({ status, settings, voice, mic, hello, commands, events, version, booted: true });
     applyAnim();
 
     if (status.mode === "locked") lock.show("session restored");

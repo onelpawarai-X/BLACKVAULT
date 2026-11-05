@@ -108,6 +108,9 @@ export function createShell(host: HTMLElement): { toastHost: HTMLElement } {
         el("span", { class: `bv-dot ${st.mic?.muted ? "off" : st.mic?.permission === "granted" ? "on" : "warn"}` }),
         st.mic?.muted ? "Mic Muted" : st.mic?.permission === "granted" ? "Mic Live" : "Mic ?",
       ),
+      st.version
+        ? el("div", { class: "bv-version", title: `BLACKVAULT ${st.version}` }, `v${st.version}`)
+        : null,
     );
 
     const def = ROUTES.find((r) => r.id === st.route) ?? ROUTES[0]!;
