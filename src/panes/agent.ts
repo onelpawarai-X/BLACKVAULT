@@ -392,21 +392,11 @@ export const agentPane: Pane = {
           break;
         }
         case "agentToolChallenge": {
-          const node = approvalCard(e.payload.tool, e.payload.summary, e.payload.token);
-          messages.push({
-            id: `approval-${e.payload.token}`,
-            localId: e.payload.localId,
-            kind: "action",
-            role: "assistant",
-            text: "",
-            thought: "",
-            tool: e.payload.tool,
-            summary: e.payload.summary,
-            ok: true,
-            at: new Date().toISOString(),
-          });
-          renderStream();
-          stream.appendChild(node);
+          // The approval card *is* the record of this step, so it is appended to
+          // the stream directly rather than going through the message list.
+          stream.appendChild(
+            approvalCard(e.payload.tool, e.payload.summary, e.payload.token),
+          );
           stream.scrollTop = stream.scrollHeight;
           break;
         }
