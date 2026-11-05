@@ -8,6 +8,7 @@
 // a tool that needs approval arrives as an `agentToolChallenge`.
 
 import * as bridge from "../lib/bridge";
+import { mergeChunk } from "../lib/agentstream";
 import { clear, el, mount, relTime, svgIcon } from "../lib/dom";
 import { ICONS } from "../lib/icons";
 import type {
@@ -111,6 +112,11 @@ export const agentPane: Pane = {
     const send = async (): Promise<void> => {
       const text = input.value.trim();
       if (!text || sending) return;
+      // A brand-new chat gets its own id here, not the shared "new" sentinel.
+      // Sending under "new" bound every first message to the same chat, so each
+      // new chat overwrote the last one's conversation and "new chat" resumed
+      // the old thread.
+      const localId = active === NEW_CHAT ? newLocalId() : active;
       input.value = "";
       autoGrow();
       sending = true;
@@ -118,15 +124,12 @@ export const agentPane: Pane = {
       messages.push(localMessage("user", "message", text));
       renderStream();
       try {
-        await bridge.agentSend(active, text);
+        await bridge.agentSend(localId, text);
+        active = localId;
         // The chat now exists on the cloud; refresh the rail so its title and
         // remote id appear.
-        if (active === NEW_CHAT) {
-          const list = await bridge.agentConversations();
-          conversations.splice(0, conversations.length, ...list);
-          const newest = conversations[0];
-          if (newest) active = newest.localId;
-        }
+        const list = await bridge.agentConversations();
+        conversations.splice(0, conversations.length, ...list);
         renderRail();
       } catch (e) {
         ctx.toast("পাঠানো যায়নি", String(e), "critical");
@@ -195,7 +198,7 @@ export const agentPane: Pane = {
       renderStream();
       if (localId === NEW_CHAT) return;
       try {
-        const history = await bridge.agentHistory(localId, 120);
+        const history = await bridge.agentHistory(localId, 1000);
         messages.splice(0, messages.length, ...history);
         renderStream();
       } catch (e) {
@@ -289,8 +292,15 @@ export const agentPane: Pane = {
     // The answer as it arrives. A delta updates this one node instead of
     // rebuilding the transcript, and the card is dropped when the final message
     // for the turn lands, so nothing is shown twice.
-    let streaming: { localId: string; node: HTMLElement; body: HTMLElement; text: string } | null =
-      null;
+    let streaming: {
+      localId: string;
+      node: HTMLElement;
+      body: HTMLElement;
+      text: string;
+      thought: string;
+      details: HTMLElement;
+      thoughtBody: HTMLElement;
+    } | null = null;
 
     function renderStream(): void {
       clear(stream);
@@ -326,8 +336,13 @@ export const agentPane: Pane = {
     }
 
     function pushDelta(localId: string, ev: AgentEvent): void {
-      const chunk = ev.text ?? "";
-      if (!chunk) return;
+      // Both halves of a live answer are streamed: the model's reasoning as it
+      // thinks, and the answer as it is written. The reasoning is what fills the
+      // long pause before any answer text exists — without it the transcript sits
+      // still for the whole thinking phase and the reply then lands in one burst.
+      const text = ev.text ?? "";
+      const thought = ev.thought ?? "";
+      if (!text && !thought) return;
       if (!streaming || streaming.localId !== localId) {
         clearStreaming();
         dropEmptyState();
@@ -335,16 +350,26 @@ export const agentPane: Pane = {
         const head = el("div", { class: "bv-msg-head" });
         head.appendChild(el("span", { class: "bv-msg-who" }, "BLACKVAULT"));
         card.appendChild(head);
+        const details = el("details", { class: "bv-msg-thought" });
+        details.appendChild(el("summary", {}, "চিন্তা"));
+        const thoughtBody = el("div", { class: "bv-msg-thought-body" });
+        details.appendChild(thoughtBody);
+        details.hidden = true;
+        card.appendChild(details);
         const body = el("div", { class: "bv-msg-body" });
         card.appendChild(body);
         stream.appendChild(card);
-        streaming = { localId, node: card, body, text: "" };
+        streaming = { localId, node: card, body, text: "", thought: "", details, thoughtBody };
       }
-      // The service may send incremental chunks or the whole text so far; accept
-      // either rather than guess which one it is.
-      if (chunk.startsWith(streaming.text)) streaming.text = chunk;
-      else if (!streaming.text.endsWith(chunk)) streaming.text += chunk;
-      streaming.body.textContent = streaming.text;
+      if (thought) {
+        streaming.details.hidden = false;
+        streaming.thought = mergeChunk(streaming.thought, thought);
+        streaming.thoughtBody.textContent = streaming.thought;
+      }
+      if (text) {
+        streaming.text = mergeChunk(streaming.text, text);
+        streaming.body.textContent = streaming.text;
+      }
       stream.scrollTop = stream.scrollHeight;
     }
 
@@ -407,6 +432,13 @@ export const agentPane: Pane = {
       if (text) {
         const body = el("div", { class: "bv-msg-body" });
         body.textContent = text;
+        // A tool's raw output can be thousands of lines. Clamp it so one
+        // command cannot swallow the transcript, and let it be expanded.
+        const long = m.kind === "observation" && text.length > 600;
+        if (long) {
+          body.classList.add("is-clamped");
+          body.addEventListener("click", () => body.classList.toggle("is-clamped"));
+        }
         card.appendChild(body);
       }
       if (m.kind === "observation") {
@@ -641,6 +673,13 @@ export const agentPane: Pane = {
             pushDelta(e.payload.localId, ev);
             break;
           }
+          // The turn's liveness, not a transcript line: it is never rendered as
+          // a card. A `finished` retires the live card in case no final message
+          // follows it.
+          if (ev.kind === "exec_status") {
+            if (ev.text === "finished" || ev.text === "stopped") clearStreaming();
+            break;
+          }
           if (ev.kind === "message" && ev.role === "assistant") clearStreaming();
           messages.push({ ...ev, localId: e.payload.localId });
           appendMessage({ ...ev, localId: e.payload.localId });
@@ -751,6 +790,11 @@ export const agentPane: Pane = {
 };
 
 // ============================================================ helpers
+
+/** A fresh local chat id. Unique per chat so a new chat never reuses another's. */
+function newLocalId(): string {
+  return `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 function localMessage(role: string, kind: string, text: string): AgentMessage {
   return {

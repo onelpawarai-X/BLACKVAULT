@@ -276,12 +276,23 @@ export interface AgentState {
 export interface AgentMessage {
   id: string;
   localId: string;
-  kind: "message" | "action" | "observation" | "usage" | "status" | "error" | "delta" | "other";
+  kind:
+    | "message"
+    | "action"
+    | "observation"
+    | "usage"
+    | "status"
+    | "error"
+    | "delta"
+    | "exec_status"
+    | "other";
   role: string;
   text: string;
   thought: string;
   tool: string;
   summary: string;
+  /** A tool call's arguments, as the service sent them. */
+  arguments?: Record<string, unknown>;
   ok: boolean;
   at: string;
 }

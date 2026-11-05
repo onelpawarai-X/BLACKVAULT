@@ -48,6 +48,13 @@ pub const CLOUD_BASE: &str = "https://app.all-hands.dev/api/v1";
 /// consistent across the two clients.
 pub const DEFAULT_MODEL: &str = "openhands/deepseek-v4.1-flash";
 
+/// The service refuses `limit` above this on the events endpoint (HTTP 422).
+pub const MAX_EVENTS_PAGE: u32 = 100;
+
+/// How many events of history the desktop asks for. Long enough for a real
+/// conversation, short enough that the panel opens promptly; paging stops here.
+pub const MAX_HISTORY: u32 = 1000;
+
 /// How long a plain API call may take. Listing and status calls are quick; a
 /// sandbox that is still booting answers slowly, so this is generous.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -224,6 +231,15 @@ pub struct AgentEvent {
     /// False when an observation reports a failure.
     #[serde(default)]
     pub ok: bool,
+    /// The arguments of a tool call, as the service sent them.
+    ///
+    /// A call for one of our tools arrives here and is run on this machine, so
+    /// its arguments have to survive normalisation: the service puts them in the
+    /// action event's `action` object (and repeats them as a JSON string in
+    /// `tool_call.arguments`), not in the summary. Dropping them means every
+    /// desktop tool call is attempted with no arguments and fails.
+    #[serde(default)]
+    pub arguments: Value,
     #[serde(default)]
     pub at: String,
 }
@@ -316,6 +332,7 @@ pub fn normalise_event(event: &Value) -> AgentEvent {
                 .to_string();
             ev.summary = action_summary(event);
             ev.thought = blocks_text(event.get("thought").unwrap_or(&Value::Null));
+            ev.arguments = action_arguments(event);
             ev
         }
         "ObservationEvent" => {
@@ -335,13 +352,20 @@ pub fn normalise_event(event: &Value) -> AgentEvent {
             ev
         }
         "ConversationStateUpdateEvent" => {
-            let mut ev = AgentEvent::base(id, "status", at);
             let key = event.get("key").and_then(Value::as_str).unwrap_or("");
+            let value = event.get("value").cloned().unwrap_or(Value::Null);
+            // The turn's own liveness, kept as its own kind. It must not be
+            // folded into `status`: only a *transition* to finished ends a turn,
+            // and a `status` card is a transcript line the user reads.
+            if key == "execution_status" {
+                let mut ev = AgentEvent::base(id, "exec_status", at);
+                ev.text = value.as_str().unwrap_or_default().to_string();
+                return ev;
+            }
             if key == "stats" {
-                ev.kind = "usage".into();
-                let metrics = event
-                    .get("value")
-                    .and_then(|v| v.get("usage_to_metrics"))
+                let mut ev = AgentEvent::base(id, "usage", at);
+                let metrics = value
+                    .get("usage_to_metrics")
                     .and_then(|v| v.get("agent"))
                     .cloned()
                     .unwrap_or(Value::Null);
@@ -355,14 +379,13 @@ pub fn normalise_event(event: &Value) -> AgentEvent {
                     .and_then(Value::as_f64)
                     .unwrap_or(0.0);
                 ev.text = format!("{tokens} tokens · ${cost:.4}");
-            } else {
-                ev.text = event
-                    .get("value")
-                    .and_then(Value::as_str)
-                    .unwrap_or(key)
-                    .to_string();
+                return ev;
             }
-            ev
+            // Every other key the service pushes (`full_state`,
+            // `last_user_message_id`, …) is bookkeeping whose value is not a
+            // status. Showing it as a card put raw keys in the transcript, so it
+            // is dropped instead.
+            AgentEvent::base(id, "other", at)
         }
         "AgentStateChangedObservation" => {
             let mut ev = AgentEvent::base(id, "status", at);
@@ -387,6 +410,40 @@ pub fn normalise_event(event: &Value) -> AgentEvent {
         }
         _ => AgentEvent::base(id, "other", at),
     }
+}
+
+/// The arguments of a tool call, as the service sent them.
+///
+/// The action's own fields are the arguments (`{"command": "ls"}`); the service
+/// also mirrors them as a JSON string in `tool_call.arguments`, which is used as
+/// a fallback when the action is not an object. A call that arrives with no
+/// arguments at all becomes `{}` rather than `null`, so a tool with no
+/// parameters still parses.
+pub fn action_arguments(event: &Value) -> Value {
+    if let Some(action) = event.get("action") {
+        if action.is_object() {
+            return action.clone();
+        }
+        if let Some(text) = action.as_str() {
+            if let Ok(parsed) = serde_json::from_str::<Value>(text) {
+                if parsed.is_object() {
+                    return parsed;
+                }
+            }
+        }
+    }
+    if let Some(text) = event
+        .get("tool_call")
+        .and_then(|c| c.get("arguments"))
+        .and_then(Value::as_str)
+    {
+        if let Ok(parsed) = serde_json::from_str::<Value>(text) {
+            if parsed.is_object() {
+                return parsed;
+            }
+        }
+    }
+    json!({})
 }
 
 /// A one-line description of an action, taken from whichever field the tool
@@ -416,7 +473,7 @@ pub fn action_summary(event: &Value) -> String {
 pub fn is_renderable(event: &AgentEvent) -> bool {
     matches!(
         event.kind.as_str(),
-        "message" | "action" | "observation" | "usage" | "status" | "error" | "delta"
+        "message" | "action" | "observation" | "usage" | "status" | "error" | "delta" | "exec_status"
     )
 }
 
@@ -596,31 +653,62 @@ impl Cloud {
         Ok(())
     }
 
-    /// Read history. `desc` asks for newest first, which is what the socket's
-    /// dedup and the cache want.
-    pub fn events(&self, key: &str, id: &str, limit: u32, desc: bool) -> BvResult<Vec<Value>> {
-        let order = if desc { "TIMESTAMP_DESC" } else { "TIMESTAMP_ASC" };
-        let value = self.call(
-            key,
-            "GET",
-            &format!("/conversation/{id}/events/search?limit={limit}&sort_order={order}"),
-            None,
-        )?;
-        Ok(value
-            .get("items")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default())
+    /// How many events one page may ask for. The service refuses `limit` above
+    /// `MAX_EVENTS_PAGE` with a 422, and the caller used to turn that into an
+    /// empty transcript — an old chat then looked like it had never happened.
+    pub fn page_size(remaining: u32) -> u32 {
+        remaining.clamp(1, MAX_EVENTS_PAGE)
+    }
+
+    /// Up to `limit` newest events, walking the service's pages.
+    ///
+    /// A page holds at most `MAX_EVENTS_PAGE` events and the service will not
+    /// answer a larger `limit`, so a chat longer than one page only comes back
+    /// whole if its `next_page_id` (an offset) is followed. Without this the
+    /// transcript silently stopped at the first page.
+    pub fn events_window(&self, key: &str, id: &str, limit: u32) -> BvResult<Vec<Value>> {
+        let limit = limit.max(1);
+        let mut out: Vec<Value> = Vec::new();
+        let mut page: Option<u64> = None;
+        while (out.len() as u32) < limit {
+            let want = Self::page_size(limit - out.len() as u32);
+            let mut url = format!(
+                "/conversation/{id}/events/search?limit={want}&sort_order=TIMESTAMP_DESC"
+            );
+            if let Some(p) = page {
+                url.push_str(&format!("&page_id={p}"));
+            }
+            let value = self.call(key, "GET", &url, None)?;
+            let batch = value
+                .get("items")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            if batch.is_empty() {
+                break;
+            }
+            out.extend(batch);
+            match value.get("next_page_id").and_then(Value::as_u64) {
+                Some(next) => page = Some(next),
+                None => break,
+            }
+        }
+        Ok(out)
     }
 
     /// History, already normalised and in reading order.
+    ///
+    /// Only the kinds that belong in a transcript are kept. Liveness signals —
+    /// `exec_status`, and the `status` lines that carry ids and state keys — are
+    /// dropped: they mean something live but nothing in a scrollback, and left
+    /// in they showed up as stray cards.
     pub fn history(&self, key: &str, id: &str, limit: u32) -> BvResult<Vec<AgentEvent>> {
-        let mut items = self.events(key, id, limit, true)?;
+        let mut items = self.events_window(key, id, limit.min(MAX_HISTORY))?;
         items.reverse();
         Ok(items
             .iter()
             .map(normalise_event)
-            .filter(is_renderable)
+            .filter(|e| matches!(e.kind.as_str(), "message" | "action" | "observation" | "usage" | "error"))
             .collect())
     }
 
@@ -783,7 +871,13 @@ pub fn parse_start_task(value: &Value) -> StartTask {
 /// Something the stream can report that is not an event.
 #[derive(Debug, Clone)]
 pub enum StreamSignal {
+    /// The socket is open and subscribed. Reported once per connection so a
+    /// caller can act only when events are guaranteed to be received.
+    Connected,
     Event(Box<AgentEvent>),
+    /// The socket was read and had nothing to say. A chance for the caller to
+    /// notice that a turn has gone quiet and stop waiting for it.
+    Idle,
     /// The socket dropped; a reconnect is being attempted.
     Reconnecting(String),
     /// The socket closed for good.
@@ -841,6 +935,18 @@ pub fn stream_events(
             }
         };
 
+        // A read must not block forever: with no timeout the loop would sit in
+        // `read()` after the turn ended and never see `stop`, which is what left
+        // the UI showing "running" long after the answer had arrived. A short
+        // timeout turns an idle socket into a chance to re-check `stop`.
+        if let Err(e) = set_read_timeout(&mut socket, SOCKET_POLL) {
+            log::debug!("agent socket: could not set read timeout: {e}");
+        }
+
+        // The socket is open and subscribed: anything sent now is guaranteed to
+        // be seen.
+        on_signal(StreamSignal::Connected);
+
         attempt = 0;
         loop {
             if stop.load(Ordering::Relaxed) {
@@ -878,6 +984,9 @@ pub fn stream_events(
                     if e.kind() == std::io::ErrorKind::WouldBlock
                         || e.kind() == std::io::ErrorKind::TimedOut =>
                 {
+                    // An idle socket, not a dead one. Report it so the caller can
+                    // notice a quiet turn, then loop back and re-check `stop`.
+                    on_signal(StreamSignal::Idle);
                     continue;
                 }
                 Err(_) => break,
@@ -906,6 +1015,27 @@ pub fn stream_events(
 pub fn backoff(attempt: u32) -> Duration {
     let millis = 500u64.saturating_mul(1u64 << attempt.min(4));
     Duration::from_millis(millis.min(8_000))
+}
+
+/// How long the socket read may block before the loop re-checks `stop`.
+const SOCKET_POLL: Duration = Duration::from_millis(750);
+
+/// Put a read timeout on the socket underneath a websocket.
+///
+/// Returns an error rather than panicking when the stream is not a plain TCP
+/// stream, so a different backend degrades to a blocking read instead of
+/// crashing the turn.
+fn set_read_timeout(
+    socket: &mut tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>,
+    timeout: Duration,
+) -> std::io::Result<()> {
+    match socket.get_mut() {
+        tungstenite::stream::MaybeTlsStream::Plain(stream) => stream.set_read_timeout(Some(timeout)),
+        tungstenite::stream::MaybeTlsStream::Rustls(stream) => {
+            stream.get_mut().set_read_timeout(Some(timeout))
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Read a whole body to a string. Kept here so the HTTP client has one place
@@ -938,6 +1068,16 @@ mod tests {
             conv.socket_url().as_deref(),
             Some("wss://host.example/sockets/events/abc")
         );
+    }
+
+    #[test]
+    fn the_events_page_limit_is_clamped_to_what_the_service_accepts() {
+        // The service answers 422 for limit > 100, which the app turned into an
+        // empty transcript — an old chat looked like it had never happened.
+        assert_eq!(Cloud::page_size(120), 100);
+        assert_eq!(Cloud::page_size(1000), 100);
+        assert_eq!(Cloud::page_size(50), 50);
+        assert_eq!(Cloud::page_size(0), 1);
     }
 
     #[test]
@@ -1024,6 +1164,79 @@ mod tests {
         assert_eq!(event.kind, "action");
         assert_eq!(event.tool, "terminal");
         assert_eq!(event.summary, "terminal: ls -la");
+    }
+
+    #[test]
+    fn execution_status_is_its_own_kind_and_renderable() {
+        // It has to survive `is_renderable`, or the turn would never be seen to
+        // finish; and it must not be a plain `status`, which is what the socket
+        // replays as a stale "idle" on connect.
+        let raw = json!({
+            "id": "e9",
+            "kind": "ConversationStateUpdateEvent",
+            "key": "execution_status",
+            "value": "finished"
+        });
+        let event = normalise_event(&raw);
+        assert_eq!(event.kind, "exec_status");
+        assert_eq!(event.text, "finished");
+        assert!(is_renderable(&event));
+    }
+
+    #[test]
+    fn a_plain_status_is_not_an_execution_status() {
+        // Bookkeeping keys (`last_user_message_id`, `full_state`, …) are not
+        // status lines: they are dropped rather than shown as stray cards.
+        for key in ["last_user_message_id", "full_state"] {
+            let raw = json!({
+                "id": "e10",
+                "kind": "ConversationStateUpdateEvent",
+                "key": key,
+                "value": "abc"
+            });
+            let event = normalise_event(&raw);
+            assert_eq!(event.kind, "other", "key {key} should not be a card");
+            assert!(!is_renderable(&event));
+        }
+    }
+
+    #[test]
+    fn a_tool_call_carries_its_arguments() {
+        // The arguments live on the action object, not in the summary. Without
+        // them every desktop tool call was attempted with nothing and failed.
+        let raw = json!({
+            "id": "e11",
+            "kind": "ActionEvent",
+            "tool_name": "bv_run_command_v1",
+            "action": { "command": "echo hi", "kind": "ClientAction_bv_run_command_v1" }
+        });
+        let event = normalise_event(&raw);
+        assert_eq!(event.tool, "bv_run_command_v1");
+        assert_eq!(event.arguments["command"], "echo hi");
+    }
+
+    #[test]
+    fn a_tool_call_without_arguments_is_an_empty_object() {
+        let raw = json!({
+            "id": "e12",
+            "kind": "ActionEvent",
+            "tool_name": "bv_system_info_v1"
+        });
+        let event = normalise_event(&raw);
+        assert!(event.arguments.is_object());
+        assert!(event.arguments.as_object().unwrap().is_empty());
+    }
+
+    #[test]
+    fn arguments_can_come_from_the_tool_call_string() {
+        let raw = json!({
+            "id": "e13",
+            "kind": "ActionEvent",
+            "tool_name": "bv_open_app_v1",
+            "tool_call": { "arguments": "{\"app\":\"Chrome\"}" }
+        });
+        let event = normalise_event(&raw);
+        assert_eq!(event.arguments["app"], "Chrome");
     }
 
     #[test]

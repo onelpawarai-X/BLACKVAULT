@@ -312,6 +312,15 @@
   user-select: text;
 }
 
+/* A tool's raw output, folded to a few lines until it is clicked open. */
+.bv-msg-body.is-clamped {
+  max-height: 6.5em;
+  overflow: hidden;
+  cursor: pointer;
+  -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent);
+  mask-image: linear-gradient(180deg, #000 55%, transparent);
+}
+
 .bv-msg-thought {
   margin-bottom: 7px;
 }
