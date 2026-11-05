@@ -27,6 +27,7 @@ telemetry.
 | **Automation** | *"next"*, *"previous"*, *"scroll down"*, *"scroll top"*, *"page down"*, *"click"*, *"double click"*, *"press enter"*, *"full screen"*, *"new tab"*, *"volume up"*, *"mute"*, *"show desktop"*, *"take a screenshot"*, and arbitrary key combos. All through real `SendInput`. |
 | **Word recognition** | Your own speech-to-text endpoint by default; the Windows offline recogniser is an opt-in switch. Either way a command runs the moment you type it into the editor — there is no training step. |
 | **Factors** | Secret passphrase, numeric PIN, 3×3 pattern, Windows Hello (fingerprint/face/PIN). All local, all salted-hashed, all rate limited. |
+| **Desktop agent** | An AI agent that works on two bodies at once: a cloud sandbox for long jobs, and this computer for the things only this computer can do. Say *"ask the agent to …"* and the rest of the sentence is the request. Every sensitive step — running a command, reading a file, releasing a protection — stops and waits for your own approval. |
 
 ## What it deliberately does **not** do
 
@@ -90,6 +91,7 @@ The portable build is the single executable at
 | [`docs/INSTALL.md`](docs/INSTALL.md) | Toolchain, build, packaging, code signing |
 | [`docs/TESTING.md`](docs/TESTING.md) | Test strategy and how to reproduce the results |
 | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | Every setting, where it is stored, what it changes |
+| [`docs/AGENT.md`](docs/AGENT.md) | The desktop agent: architecture, the approval gate, privacy, failure behaviour |
 
 ## Project layout
 
@@ -97,6 +99,7 @@ The portable build is the single executable at
 src/                      TypeScript frontend (no framework)
   lib/                    IPC bridge, types, DOM helpers, icons, store
   ui/                     shell, lock screen, setup wizard
+  panes/agent.ts          the agent command centre
   panes/                  one module per screen
   styles/                 the design system
 src-tauri/                Rust core
@@ -107,6 +110,11 @@ src-tauri/                Rust core
     voice/                capture, VAD, MFCC/DTW matcher, router
     platform/             Windows integration (lock, hello, applock, fileprot,
                           automation, launcher, service, speech)
+    agent.rs              the desktop tool catalogue and its planner
+    agent_cmds.rs         the command surface the Agent pane talks to
+    bridge.rs             conversation registry and turn decisions (pure)
+    cloud.rs              the OpenHands client: conversations, sandboxes, streams
+    runner.rs             the turn runner and the host that runs tools here
     auth.rs               the authentication policy
     crypto.rs             PBKDF2 hashing and DPAPI sealing
     db.rs                 SQLite persistence
