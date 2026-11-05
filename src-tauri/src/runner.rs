@@ -383,8 +383,18 @@ impl AgentRuntime {
         let conversation = binding
             .as_ref()
             .and_then(|b| self.cloud.conversation(&key, &b.remote_id).ok());
-        let warm = self.registry.write().take_warm_sandbox();
+        let mut warm = self.registry.write().take_warm_sandbox();
         let plan = bridge::plan_turn(binding.as_ref(), conversation.as_ref(), warm.clone());
+
+        // A cold start must not spend a fresh sandbox from the daily ration while
+        // the account already owns one. The registry only knows this desktop's
+        // own history, so when it is empty, ask the account for the newest
+        // sandbox the user already has and adopt that instead.
+        if matches!(plan, bridge::TurnPlan::Start { .. }) && warm.is_none() {
+            if let Ok(conversations) = self.cloud.list_conversations(&key, 30) {
+                warm = bridge::adopt_sandbox(&conversations);
+            }
+        }
 
         // 2. Get a conversation that is up, and remember it.
         let (conversation, first_prompt) = match plan {
@@ -409,9 +419,12 @@ impl AgentRuntime {
                 );
                 (conversation, prompt.to_string())
             }
-            bridge::TurnPlan::Start { reuse } => {
+            bridge::TurnPlan::Start { .. } => {
                 self.set_phase(TurnPhase::Preparing, "কনভার্সেশন তৈরি হচ্ছে…");
-                self.begin_conversation(&key, local_id, prompt, reuse.as_deref())?
+                if let Some(sandbox) = &warm {
+                    let _ = self.cloud.resume_sandbox(&key, sandbox);
+                }
+                self.begin_conversation(&key, local_id, prompt, warm.as_deref())?
             }
         };
 

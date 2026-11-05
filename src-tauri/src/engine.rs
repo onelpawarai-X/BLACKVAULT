@@ -386,9 +386,11 @@ fn on_text(state: &Arc<AppState>, source: Recogniser, text: &str) {
     // words were actually a command. Complaining about every unrecognised
     // utterance turned ordinary conversation in the room into a stream of
     // "wake phrase required" notices, which is what made the app unusable.
+    // The lock phrases are exempt: "lock this pc" must lock on its own words.
     if settings.require_wake_for_commands
         && matched.is_some()
         && !state.router.lock().armed(Instant::now())
+        && !crate::voice::router::ALWAYS_READY_PHRASES.contains(&heard.as_str())
     {
         state.toast("Wake phrase required", "Say the wake phrase first.", "warn");
         return;

@@ -340,6 +340,37 @@ pub fn due_for_keepalive(
     due
 }
 
+/// Find a sandbox on the account to host a new conversation, so a cold start
+/// never spends a fresh one from the daily ration.
+///
+/// A sandbox is rationed per day; reusing one is free and takes seconds. The
+/// registry remembers the sandboxes *this* desktop has used, but that memory
+/// dies with the app and with the registry secret — after a reinstall, a
+/// sign-in as the same user, or a pruned binding, the app has no warm id and
+/// would create a new sandbox for every new chat until the quota runs out.
+/// Asking the account closes that hole: any conversation the user already owns
+/// points at a sandbox that is already counted, so the newest one is adopted.
+///
+/// The newest *running* sandbox wins: it needs no resume, so a new chat opens
+/// in seconds. A paused one is the fallback, and it is resumed by the caller.
+pub fn adopt_sandbox(conversations: &[ConversationBrief]) -> Option<String> {
+    let newest = |want_running: bool| {
+        conversations
+            .iter()
+            .filter(|c| {
+                let up = c.sandbox_status.as_deref();
+                if want_running {
+                    up == Some("RUNNING")
+                } else {
+                    up == Some("PAUSED")
+                }
+            })
+            .filter_map(|c| c.sandbox_id.clone())
+            .find(|id| !id.trim().is_empty())
+    };
+    newest(true).or_else(|| newest(false))
+}
+
 /// Forget bindings nobody has touched for a long time, so the registry does not
 /// grow without bound.
 pub fn prune(registry: &mut AgentRegistry, now: i64, max_age_secs: i64) -> usize {
@@ -462,6 +493,15 @@ mod tests {
         }
     }
 
+    fn brief(id: &str, sandbox_id: Option<&str>, sandbox_status: Option<&str>) -> ConversationBrief {
+        ConversationBrief {
+            id: id.into(),
+            sandbox_id: sandbox_id.map(str::to_string),
+            sandbox_status: sandbox_status.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn a_binding_is_recorded_and_found() {
         let mut registry = AgentRegistry::new();
@@ -550,6 +590,40 @@ mod tests {
     fn a_chat_with_no_binding_starts_fresh() {
         let plan = plan_turn(None, None, None);
         assert_eq!(plan, TurnPlan::Start { reuse: None });
+    }
+
+    #[test]
+    fn a_cold_start_adopts_a_running_sandbox_from_the_account() {
+        let conversations = vec![
+            brief("c3", Some("sb_paused"), Some("PAUSED")),
+            brief("c2", Some("sb_running"), Some("RUNNING")),
+        ];
+        // The running one wins even though it is not first: it needs no resume.
+        assert_eq!(adopt_sandbox(&conversations).as_deref(), Some("sb_running"));
+    }
+
+    #[test]
+    fn a_cold_start_falls_back_to_a_paused_sandbox() {
+        let conversations = vec![
+            brief("c3", Some("sb_paused"), Some("PAUSED")),
+            brief("c2", Some("sb_other"), Some("PAUSED")),
+        ];
+        assert_eq!(adopt_sandbox(&conversations).as_deref(), Some("sb_paused"));
+    }
+
+    #[test]
+    fn nothing_to_adopt_means_a_fresh_sandbox() {
+        assert!(adopt_sandbox(&[]).is_none());
+        let only_starting = vec![brief("c1", Some("sb_x"), Some("STARTING"))];
+        assert!(adopt_sandbox(&only_starting).is_none());
+        let no_id = vec![brief("c1", None, Some("RUNNING"))];
+        assert!(adopt_sandbox(&no_id).is_none());
+    }
+
+    #[test]
+    fn a_blank_sandbox_id_is_not_adopted() {
+        let blank = vec![brief("c1", Some("   "), Some("RUNNING"))];
+        assert!(adopt_sandbox(&blank).is_none());
     }
 
     #[test]
