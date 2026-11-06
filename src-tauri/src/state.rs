@@ -46,6 +46,7 @@ pub enum CoreEvent {
     Voice(crate::models::VoiceStatus),
     Mic(crate::models::MicStatus),
     Mode { mode: String, reason: Option<String> },
+    #[serde(rename_all = "camelCase")]
     Heard { text: String, is_final: bool },
     Command { phrase: String, action: String, ok: bool },
     Auth(crate::models::AuthResult),
@@ -54,6 +55,7 @@ pub enum CoreEvent {
     /// A protected application is running without authorisation. The UI raises
     /// the authentication prompt; the guard will not kill the process until the
     /// grace period below has passed.
+    #[serde(rename_all = "camelCase")]
     AppChallenge {
         rule_id: i64,
         process_name: String,
@@ -69,6 +71,7 @@ pub enum CoreEvent {
     /// A protected file or folder was opened. The prompt is raised in its own
     /// window so the user authenticates at the point of use, wherever the
     /// control centre happens to be.
+    #[serde(rename_all = "camelCase")]
     PathChallenge {
         token: String,
         item_id: i64,
@@ -84,11 +87,13 @@ pub enum CoreEvent {
     /// The agent's own state changed (busy, phase, stage, conversation count).
     Agent(Box<crate::runner::AgentState>),
     /// One rendered line of an agent conversation.
+    #[serde(rename_all = "camelCase")]
     AgentEvent {
         local_id: String,
         event: crate::cloud::AgentEvent,
     },
     /// The agent asked for a tool that needs the user's approval.
+    #[serde(rename_all = "camelCase")]
     AgentToolChallenge {
         local_id: String,
         tool: String,
@@ -96,6 +101,7 @@ pub enum CoreEvent {
         token: String,
     },
     /// The agent's socket dropped and is being re-joined.
+    #[serde(rename_all = "camelCase")]
     AgentStatus { local_id: String, status: String },
     /// The agent asked BLACKVAULT to speak.
     AgentSpeak { text: String },
@@ -365,5 +371,53 @@ mod tests {
     fn state_starts_unlocked() {
         let s = AppState::new();
         assert_eq!(s.mode(), SecurityMode::Unlocked);
+    }
+
+    /// Every field the UI reads must reach it in camelCase.
+    ///
+    /// `rename_all` on the enum renames the variants but *not* the fields of a
+    /// struct variant — each one needs its own attribute. Without them
+    /// `local_id` went out as `local_id` while the frontend read `localId`,
+    /// which is `undefined`, so every live agent event was silently dropped and
+    /// the pane showed nothing at all.
+    #[test]
+    fn core_event_fields_are_camel_case() {
+        let event = CoreEvent::AgentEvent {
+            local_id: "chat-1".into(),
+            event: crate::cloud::AgentEvent::default(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"localId\""), "agent event: {json}");
+
+        let heard = CoreEvent::Heard {
+            text: "hi".into(),
+            is_final: true,
+        };
+        let json = serde_json::to_string(&heard).unwrap();
+        assert!(json.contains("\"isFinal\""), "heard: {json}");
+
+        let challenge = CoreEvent::AppChallenge {
+            rule_id: 1,
+            process_name: "x.exe".into(),
+            display_name: "X".into(),
+            grace_secs: 5,
+            origin: None,
+            token: "t".into(),
+        };
+        let json = serde_json::to_string(&challenge).unwrap();
+        assert!(json.contains("\"ruleId\""), "app challenge: {json}");
+        assert!(json.contains("\"processName\""), "app challenge: {json}");
+
+        let path = CoreEvent::PathChallenge {
+            token: "t".into(),
+            item_id: 2,
+            path: "C:\\x".into(),
+            display_name: "X".into(),
+            kind: "file".into(),
+            origin: None,
+        };
+        let json = serde_json::to_string(&path).unwrap();
+        assert!(json.contains("\"itemId\""), "path challenge: {json}");
+        assert!(json.contains("\"displayName\""), "path challenge: {json}");
     }
 }
