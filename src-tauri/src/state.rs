@@ -440,5 +440,23 @@ mod tests {
         let json = serde_json::to_string(&path).unwrap();
         assert!(json.contains("\"itemId\""), "path challenge: {json}");
         assert!(json.contains("\"displayName\""), "path challenge: {json}");
+
+        // The dictation and transcript events carry fields the frontend reads by
+        // name, so the same trap applies to them.
+        let dictated = CoreEvent::Dictated {
+            text: "hello".into(),
+            is_final: true,
+        };
+        let json = serde_json::to_string(&dictated).unwrap();
+        assert!(json.contains("\"dictated\""), "dictated type: {json}");
+        assert!(json.contains("\"isFinal\""), "dictated: {json}");
+
+        let transcript = CoreEvent::AgentTranscript {
+            local_id: "chat-1".into(),
+            messages: Vec::new(),
+        };
+        let json = serde_json::to_string(&transcript).unwrap();
+        assert!(json.contains("\"agentTranscript\""), "transcript type: {json}");
+        assert!(json.contains("\"localId\""), "transcript: {json}");
     }
 }
