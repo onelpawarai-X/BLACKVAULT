@@ -385,7 +385,7 @@ dependencies = [
 
 [[package]]
 name = "blackvault"
-version = "1.4.8"
+version = "1.4.10"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
