@@ -120,6 +120,8 @@ pub fn run() {
             // automation
             commands::run_automation,
             commands::listen_once,
+            commands::dictation_start,
+            commands::dictation_stop,
             commands::press_keys,
             commands::click_mouse,
             commands::scroll_mouse,

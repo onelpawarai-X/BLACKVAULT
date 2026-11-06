@@ -105,6 +105,22 @@ pub enum CoreEvent {
     AgentStatus { local_id: String, status: String },
     /// The agent asked BLACKVAULT to speak.
     AgentSpeak { text: String },
+    /// The microphone heard words while dictation is on. The UI appends them to
+    /// the message box instead of the core treating them as a command.
+    #[serde(rename_all = "camelCase")]
+    Dictated { text: String, is_final: bool },
+    /// The whole transcript of a chat, straight from the service.
+    ///
+    /// Emitted when a turn ends. The live stream is the fast path, but a cold
+    /// start sends the prompt as the conversation's own initial message, so a
+    /// quick answer can be produced before the socket is open — the first reply
+    /// then existed only on the server. This replaces the pane's transcript with
+    /// the authoritative one, so nothing the user said is ever missing.
+    #[serde(rename_all = "camelCase")]
+    AgentTranscript {
+        local_id: String,
+        messages: Vec<crate::runner::AgentMessage>,
+    },
     Settings(Box<Settings>),
     Toast { title: String, body: String, severity: String },
 }
@@ -160,6 +176,10 @@ pub struct AppState {
     /// True once a passphrase has been verified in the current unlock attempt,
     /// so the second factor can complete the unlock.
     pub partial_auth: AtomicBool,
+    /// True while the mic button is dictating into the agent's message box.
+    /// Utterances are then transcribed and sent to the UI as text rather than
+    /// being matched against the command list.
+    pub dictating: AtomicBool,
     /// One-shot token handed out when an unlock succeeds, consumed by the UI.
     pub unlock_token: Mutex<Option<String>>,
     /// Set while the app is shutting down cleanly, so the crash marker is removed.
@@ -202,6 +222,7 @@ impl AppState {
             pending_prompt: Mutex::new(None),
             file_seen: Mutex::new(std::collections::HashMap::new()),
             partial_auth: AtomicBool::new(false),
+            dictating: AtomicBool::new(false),
             unlock_token: Mutex::new(None),
             shutting_down: AtomicBool::new(false),
             speech_available: AtomicBool::new(false),
@@ -419,5 +440,23 @@ mod tests {
         let json = serde_json::to_string(&path).unwrap();
         assert!(json.contains("\"itemId\""), "path challenge: {json}");
         assert!(json.contains("\"displayName\""), "path challenge: {json}");
+
+        // The dictation and transcript events carry fields the frontend reads by
+        // name, so the same trap applies to them.
+        let dictated = CoreEvent::Dictated {
+            text: "hello".into(),
+            is_final: true,
+        };
+        let json = serde_json::to_string(&dictated).unwrap();
+        assert!(json.contains("\"dictated\""), "dictated type: {json}");
+        assert!(json.contains("\"isFinal\""), "dictated: {json}");
+
+        let transcript = CoreEvent::AgentTranscript {
+            local_id: "chat-1".into(),
+            messages: Vec::new(),
+        };
+        let json = serde_json::to_string(&transcript).unwrap();
+        assert!(json.contains("\"agentTranscript\""), "transcript type: {json}");
+        assert!(json.contains("\"localId\""), "transcript: {json}");
     }
 }

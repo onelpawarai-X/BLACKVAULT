@@ -292,6 +292,23 @@ pub fn react_to(
 /// huge prompt, and the newest turns are the ones kept — they are the ones the
 /// next reply depends on.
 pub fn recovery_prompt(history: &[crate::cloud::AgentEvent], keep: usize) -> String {
+    let digest = transcript_digest(history, keep);
+    if digest.is_empty() {
+        return "Start a fresh session. Reply briefly to confirm you are ready.".to_string();
+    }
+    format!(
+        "Continue our conversation. A previous session was interrupted, so here is what we \
+         discussed. Keep it in mind and carry on from the last request.\n\n{digest}\n\n\
+         Reply briefly to confirm you have the context."
+    )
+}
+
+/// The last `keep` turns of a transcript, as "who: what" lines.
+///
+/// Bounded by design: a long chat must not become a huge prompt, and it is the
+/// newest turns the next reply depends on. Empty when nothing worth carrying was
+/// said.
+pub fn transcript_digest(history: &[crate::cloud::AgentEvent], keep: usize) -> String {
     let mut lines: Vec<String> = Vec::new();
     for event in history.iter().rev().take(keep).collect::<Vec<_>>().into_iter().rev() {
         match event.kind.as_str() {
@@ -308,15 +325,7 @@ pub fn recovery_prompt(history: &[crate::cloud::AgentEvent], keep: usize) -> Str
             _ => {}
         }
     }
-    if lines.is_empty() {
-        return "Start a fresh session. Reply briefly to confirm you are ready.".to_string();
-    }
-    format!(
-        "Continue our conversation. A previous session was interrupted, so here is what we \
-         discussed. Keep it in mind and carry on from the last request.\n\n{}\n\n\
-         Reply briefly to confirm you have the context.",
-        lines.join("\n")
-    )
+    lines.join("\n")
 }
 
 fn clip(text: &str, max: usize) -> String {

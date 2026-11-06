@@ -11,6 +11,7 @@ import * as bridge from "../lib/bridge";
 import { mergeChunk } from "../lib/agentstream";
 import { clear, el, mount, relTime, svgIcon } from "../lib/dom";
 import { ICONS } from "../lib/icons";
+import { renderMarkdown } from "../lib/markdown";
 import type {
   AgentConversation,
   AgentEvent,
@@ -121,6 +122,7 @@ export const agentPane: Pane = {
       autoGrow();
       sending = true;
       renderComposer();
+      seen.clear();
       messages.push(localMessage("user", "message", text));
       renderStream();
       try {
@@ -158,41 +160,31 @@ export const agentPane: Pane = {
     });
     input.addEventListener("input", autoGrow);
 
-    // Push-to-talk. The engine is already listening; this only says "the next
-    // thing said is a command", so the button works even though nothing was
-    // dictated into the box. It settles when the core reports a command, or on
-    // its own after the window closes.
-    let listeningTimer: number | null = null;
-    const stopListening = (): void => {
-      if (listeningTimer !== null) {
-        clearTimeout(listeningTimer);
-        listeningTimer = null;
-      }
-      micBtn.classList.remove("is-listening");
-      micBtn.title = "চাপুন, তারপর কমান্ড বলুন";
-    };
+    // Dictation. The mic button turns the message box into a voice-typed field:
+    // every recognised utterance is appended to the text area and nothing is
+    // matched against the command list, so saying "lock this pc" while writing a
+    // message writes it down instead of locking the desktop.
+    let dictating = false;
     micBtn.addEventListener("click", async () => {
-      if (listeningTimer !== null) {
-        stopListening();
-        return;
-      }
       try {
-        const status = await bridge.listenOnce();
+        const status = dictating ? await bridge.dictationStop() : await bridge.dictationStart();
         if (!status.running) {
           ctx.toast("ভয়েস ইঞ্জিন বন্ধ", "Voice প্যান থেকে চালু করুন।", "warn");
           return;
         }
+        dictating = !dictating;
       } catch (e) {
         ctx.toast("মাইক চালু করা যায়নি", String(e), "warn");
         return;
       }
-      micBtn.classList.add("is-listening");
-      micBtn.title = "শুনছি… কমান্ড বলুন";
-      listeningTimer = window.setTimeout(stopListening, 12000);
+      micBtn.classList.toggle("is-listening", dictating);
+      micBtn.title = dictating ? "লিখছি… আবার চাপলে থামবে" : "চাপুন, তারপর বলে লিখুন";
+      if (dictating) input.focus();
     });
 
     const openChat = async (localId: string): Promise<void> => {
       active = localId;
+      seen.clear();
       messages.splice(0, messages.length);
       renderRail();
       renderStream();
@@ -208,6 +200,7 @@ export const agentPane: Pane = {
 
     const newChat = (): void => {
       active = NEW_CHAT;
+      seen.clear();
       messages.splice(0, messages.length);
       renderRail();
       renderStream();
@@ -301,6 +294,19 @@ export const agentPane: Pane = {
       details: HTMLElement;
       thoughtBody: HTMLElement;
     } | null = null;
+
+    // Event ids already shown. A re-joined socket replays the events that
+    // arrived while it was down, and the same id must not be drawn twice — that
+    // is what made the transcript repeat itself mid-turn.
+    const seen = new Set<string>();
+
+    /** True the first time an event id is seen; false for a replay. */
+    function firstSight(id: string): boolean {
+      if (!id) return true;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    }
 
     function renderStream(): void {
       clear(stream);
@@ -431,7 +437,16 @@ export const agentPane: Pane = {
       const text = m.kind === "action" ? m.summary || m.tool : m.text;
       if (text) {
         const body = el("div", { class: "bv-msg-body" });
-        body.textContent = text;
+        // An assistant's prose is Markdown; render it. Tool output, a user's own
+        // message and an error are shown verbatim — they are not prose and their
+        // characters (paths, diffs, regex) must not be reinterpreted.
+        const asMarkdown = m.kind === "message" && m.role === "assistant";
+        if (asMarkdown) {
+          body.classList.add("is-md");
+          body.appendChild(renderMarkdown(text, openLink));
+        } else {
+          body.textContent = text;
+        }
         // A tool's raw output can be thousands of lines. Clamp it so one
         // command cannot swallow the transcript, and let it be expanded.
         const long = m.kind === "observation" && text.length > 600;
@@ -681,6 +696,10 @@ export const agentPane: Pane = {
             break;
           }
           if (ev.kind === "message" && ev.role === "assistant") clearStreaming();
+          // A replayed event (the socket dropped and was re-joined) must not be
+          // appended a second time. Deltas never reach here — they are folded
+          // above, not appended.
+          if (!firstSight(ev.id)) break;
           messages.push({ ...ev, localId: e.payload.localId });
           appendMessage({ ...ev, localId: e.payload.localId });
           break;
@@ -702,10 +721,26 @@ export const agentPane: Pane = {
           speak(e.payload.text);
           break;
         }
-        case "command": {
-          // A command was recognised and run — if we were waiting on the mic
-          // button, that is what it was waiting for.
-          stopListening();
+        case "dictated": {
+          // Words heard while dictating. Appended to the box rather than sent,
+          // so the user can correct them before pressing send.
+          if (!e.payload.text) break;
+          const sep = input.value && !input.value.endsWith(" ") ? " " : "";
+          input.value += sep + e.payload.text;
+          autoGrow();
+          input.scrollTop = input.scrollHeight;
+          break;
+        }
+        case "agentTranscript": {
+          // The server's own transcript, sent when a turn ends. It is the
+          // authority: it holds the first message's reply, which the live stream
+          // can miss on a cold start. Replacing the list only when it has
+          // something to say keeps a just-sent message from vanishing for the
+          // instant before the service records it.
+          if (e.payload.localId !== active) break;
+          if (!e.payload.messages.length) break;
+          messages.splice(0, messages.length, ...e.payload.messages);
+          renderStream();
           break;
         }
       }
@@ -761,6 +796,11 @@ export const agentPane: Pane = {
       } catch {
         /* speech is a convenience; never let it break the pane */
       }
+    }
+
+    /** Open a link from an answer in the user's own browser. */
+    function openLink(url: string): void {
+      void bridge.openExternal(url).catch((e) => ctx.toast("লিংক খোলা যায়নি", String(e), "warn"));
     }
 
     // ------------------------------------------------------------ boot

@@ -159,6 +159,23 @@ export const setAutostart = (enabled: boolean) => call<boolean>("set_autostart",
 export const openLogFolder = () => call<void>("open_log_folder");
 export const factoryReset = () => call<void>("factory_reset");
 
+// ============================ System browser ============================
+
+/**
+ * Open a link in the user's own browser.
+ *
+ * The webview cannot navigate to an external page, so an answer's links would
+ * otherwise do nothing. Only `http`, `https` and `mailto` are allowed through;
+ * anything else (a `file:` path, a `javascript:` URL) is refused.
+ */
+export async function openExternal(url: string): Promise<void> {
+  if (!/^(https?:\/\/|mailto:)/i.test(url)) {
+    throw new Error("unsupported link");
+  }
+  const { openUrl } = await import("@tauri-apps/plugin-opener");
+  await openUrl(url);
+}
+
 // ============================ Authentication prompt =====================
 
 /** Answer the open prompt. Either factor may be supplied. */
@@ -217,7 +234,9 @@ export type CoreEvent =
       payload: { localId: string; tool: string; summary: string; token: string };
     }
   | { type: "agentStatus"; payload: { localId: string; status: string } }
-  | { type: "agentSpeak"; payload: { text: string } };
+  | { type: "agentSpeak"; payload: { text: string } }
+  | { type: "dictated"; payload: { text: string; isFinal: boolean } }
+  | { type: "agentTranscript"; payload: { localId: string; messages: AgentMessage[] } };
 
 const TOPIC = "blackvault://event";
 
@@ -268,3 +287,8 @@ export const agentPending = () =>
 export const agentAnswer = (token: string, allow: boolean) =>
   call<void>("agent_answer", { token, allow });
 export const agentTools = () => call<AgentTool[]>("agent_tools");
+
+/** Start dictating into the agent's message box; the mic stays open. */
+export const dictationStart = () => call<VoiceStatus>("dictation_start");
+/** Stop dictating. The always-on command engine keeps running. */
+export const dictationStop = () => call<VoiceStatus>("dictation_stop");
