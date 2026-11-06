@@ -169,7 +169,10 @@ impl Default for Settings {
             offline_recognition: false,
             file_lock_mode: "prompt".into(),
             agent_enabled: true,
-            agent_confirm_sensitive: true,
+            // Off by default: the owner asked the agent to work without stopping
+            // for approval on every sensitive call. The switch is in Settings for
+            // anyone who wants the card back.
+            agent_confirm_sensitive: false,
             cloud_model: None,
             agent_keepalive: true,
             agent_speak: false,

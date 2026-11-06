@@ -1278,6 +1278,34 @@ pub fn listen_once(state: St<'_>) -> VoiceStatus {
     state.voice.status()
 }
 
+/// Start dictating into the agent's message box.
+///
+/// The microphone stays open and every recognised utterance is sent to the UI as
+/// text. Nothing is matched against the command list while dictating, so a
+/// sentence that happens to contain "lock this pc" is written down, not run.
+#[tauri::command]
+pub fn dictation_start(state: St<'_>) -> VoiceStatus {
+    if !state.voice.is_running() {
+        let settings = state.settings();
+        state.voice.set_wake_phrase(Some(settings.wake_phrase.clone()));
+        let st = state.voice.start();
+        state.emit(CoreEvent::Voice(st));
+    }
+    crate::engine::sync_stt(&state);
+    state.dictating.store(true, std::sync::atomic::Ordering::Relaxed);
+    state.log_event("dictation", "info", "Dictation started", None);
+    state.emit(CoreEvent::Voice(state.voice.status()));
+    state.voice.status()
+}
+
+/// Stop dictating. The always-on command engine keeps running.
+#[tauri::command]
+pub fn dictation_stop(state: St<'_>) -> VoiceStatus {
+    state.dictating.store(false, std::sync::atomic::Ordering::Relaxed);
+    state.emit(CoreEvent::Voice(state.voice.status()));
+    state.voice.status()
+}
+
 #[tauri::command]
 pub fn press_keys(combo: String) -> BvResult<()> {
     platform::automation::press_keys(&combo)

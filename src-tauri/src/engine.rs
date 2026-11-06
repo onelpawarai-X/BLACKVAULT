@@ -310,6 +310,19 @@ fn on_text(state: &Arc<AppState>, source: Recogniser, text: &str) {
     if heard.is_empty() {
         return;
     }
+
+    // While the mic button is dictating, the words are the user's message, not a
+    // command. They go to the composer and nothing is matched or run — a
+    // dictation session must never fire "lock this pc" because the sentence
+    // happened to contain it.
+    if state.dictating.load(Ordering::Relaxed) {
+        state.emit(CoreEvent::Dictated {
+            text: text.to_string(),
+            is_final: true,
+        });
+        return;
+    }
+
     let settings = state.settings();
     let locked = state.mode() != SecurityMode::Unlocked;
     let wake = crate::voice::matcher::normalise(&settings.wake_phrase);

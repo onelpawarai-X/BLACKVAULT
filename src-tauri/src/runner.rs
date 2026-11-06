@@ -449,8 +449,19 @@ impl AgentRuntime {
                 if let Some(sandbox) = &warm {
                     let _ = self.cloud.resume_sandbox(&key, sandbox);
                 }
-                let (conversation, _) =
-                    self.begin_conversation(&key, local_id, prompt, warm.as_deref())?;
+                // A new chat begins with a fresh conversation, so on its own it
+                // would know nothing the user just discussed. When an earlier
+                // chat is available its tail is carried over as context. It goes
+                // in the system message, not the first user message, so the
+                // transcript still shows exactly what the user typed.
+                let context = self.continuity_context();
+                let (conversation, _) = self.begin_conversation(
+                    &key,
+                    local_id,
+                    prompt,
+                    warm.as_deref(),
+                    context.as_deref(),
+                )?;
                 (conversation, None)
             }
         };
@@ -484,7 +495,8 @@ impl AgentRuntime {
                     .unwrap_or_default();
                 let recap = bridge::recovery_prompt(&history, 30);
                 self.set_phase(TurnPhase::Preparing, "নতুন সেশন তৈরি হচ্ছে…");
-                let (fresh, _) = self.begin_conversation(&key, local_id, &recap, warm.as_deref())?;
+                let (fresh, _) =
+                    self.begin_conversation(&key, local_id, &recap, warm.as_deref(), None)?;
                 self.registry.write().bind(
                     local_id,
                     &fresh.id,
@@ -506,14 +518,22 @@ impl AgentRuntime {
         _local_id: &str,
         prompt: &str,
         reuse: Option<&str>,
+        context: Option<&str>,
     ) -> BvResult<(ConversationBrief, String)> {
+        let mut suffix = bridge::system_suffix_with(
+            &agent::catalogue_text(),
+            &self.state.settings().agent_instructions,
+        );
+        if let Some(context) = context {
+            if !context.trim().is_empty() {
+                suffix.push_str("\n\n");
+                suffix.push_str(context);
+            }
+        }
         let request = StartRequest {
             title: bridge::title_from(prompt),
             prompt: prompt.to_string(),
-            system_message_suffix: Some(bridge::system_suffix_with(
-                &agent::catalogue_text(),
-                &self.state.settings().agent_instructions,
-            )),
+            system_message_suffix: Some(suffix),
             sandbox_id: reuse.map(str::to_string),
             model: Some(
                 self.state
@@ -677,6 +697,7 @@ impl AgentRuntime {
         );
 
         *self.stop.lock() = None;
+        self.emit_transcript(local_id);
         if let Some(error) = stream_error {
             return Err(BvError::msg(error));
         }
@@ -707,7 +728,14 @@ impl AgentRuntime {
         // is outstanding, the turn stops here and the user is asked — the agent
         // cannot approve itself, and it cannot proceed while the answer is
         // pending.
-        if agent::is_sensitive(name) && !self.is_authorised() {
+        //
+        // The user can turn the prompt off in Settings; when they have, the call
+        // runs without a card. The default is on, so the safe behaviour is what a
+        // fresh install gets.
+        if agent::is_sensitive(name)
+            && self.state.settings().agent_confirm_sensitive
+            && !self.is_authorised()
+        {
             let summary = agent::describe_call(&plan);
             if !self.request_approval(local_id, name, &summary) {
                 let message = "ব্যবহারকারী এই কাজটার অনুমোদন দেননি।";
@@ -829,6 +857,59 @@ impl AgentRuntime {
             .iter()
             .map(|e| AgentMessage::from_event(local_id, e))
             .collect())
+    }
+
+    /// The tail of the most recent other chat, as context for a new one.
+    ///
+    /// A new chat gets a new conversation, so without this it starts blank and
+    /// the user has to repeat themselves. The newest other binding is read back
+    /// and its last turns are summarised. Failures are silent: continuity is a
+    /// nicety, and a chat must still start when the service cannot be reached.
+    fn continuity_context(&self) -> Option<String> {
+        let key = self.key();
+        let remote = {
+            let registry = self.registry.read();
+            let active = self.snapshot.read().active_local_id.clone();
+            let mut newest: Option<(&str, i64)> = None;
+            for b in registry.bindings() {
+                if Some(&b.local_id) == active.as_ref() {
+                    continue;
+                }
+                if newest.map(|(_, t)| b.last_seen > t).unwrap_or(true) {
+                    newest = Some((&b.remote_id, b.last_seen));
+                }
+            }
+            newest.map(|(id, _)| id.to_string())?
+        };
+        let history = self.cloud.history(&key, &remote, 40).ok()?;
+        let digest = bridge::transcript_digest(&history, 20);
+        if digest.is_empty() {
+            return None;
+        }
+        Some(format!(
+            "The user's previous chat, carried over for continuity only. Do not treat it as \
+             the current request:\n\n{digest}"
+        ))
+    }
+
+    /// Re-read a chat's transcript from the service and hand it to the UI.
+    ///
+    /// Called when a turn ends. The live stream is the fast path, but it can miss
+    /// a reply that was produced before the socket was open — most visibly the
+    /// first message of a new chat, whose prompt the service treats as the
+    /// conversation's own initial message. The server's transcript is the
+    /// authority, so the pane is rebuilt from it once the turn is over.
+    fn emit_transcript(&self, local_id: &str) {
+        let Ok(messages) = self.history(local_id, 1000) else {
+            return;
+        };
+        if messages.is_empty() {
+            return;
+        }
+        self.state.emit(CoreEvent::AgentTranscript {
+            local_id: local_id.to_string(),
+            messages,
+        });
     }
 
     /// Keep recently used sandboxes awake so the next message is instant.

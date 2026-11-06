@@ -702,13 +702,17 @@ impl Cloud {
     /// `exec_status`, and the `status` lines that carry ids and state keys — are
     /// dropped: they mean something live but nothing in a scrollback, and left
     /// in they showed up as stray cards.
+    ///
+    /// `usage` cards are dropped too. They are a running token counter the
+    /// service appends after every turn; in a transcript they are noise the user
+    /// cannot act on, and the live stream does not show them either.
     pub fn history(&self, key: &str, id: &str, limit: u32) -> BvResult<Vec<AgentEvent>> {
         let mut items = self.events_window(key, id, limit.min(MAX_HISTORY))?;
         items.reverse();
         Ok(items
             .iter()
             .map(normalise_event)
-            .filter(|e| matches!(e.kind.as_str(), "message" | "action" | "observation" | "usage" | "error"))
+            .filter(|e| matches!(e.kind.as_str(), "message" | "action" | "observation" | "error"))
             .collect())
     }
 
